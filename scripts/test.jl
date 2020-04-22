@@ -62,9 +62,11 @@ zₒ = 0.05
 fₓ = z -> average(Y)
 kernel_z = WindLogLawKernel(gp_mean,d,zₒ,fₓ)
 
-X = [[i,j,5] for i in 1.0:4.0 for j in 1.0:4.0]
-Y = [7,9,8,6,9,8,10,11,10,11,12,13,11,14,13,15]
-X_star = [[1.0,1.0,4.0],[1.0,2.0,4.0],[1.0,3.0,4.0], [1.0,1.0,6.0],[1.0,2.0,6.0],[1.0,3.0,6.0]]
+# X = [[i,j,5] for i in 1.0:4.0 for j in 1.0:4.0]
+# Y = [7,9,8,6,9,8,10,11,10,11,12,13,11,14,13,15]
+X = [[1.0,1.0,5.0],[1.0,2.0,5.0],[1.0,3.0,5.0]]
+Y = [7,9,8]
+X_star = [[1.0,1.0,4.0],[1.0,2.0,4.0],[1.0,3.0,4.0],[1.0,1.0,6.0],[1.0,2.0,6.0],[1.0,3.0,6.0]]
 # Y_star should have mean: [6.66, 8.56, 7.61, 7.27, 9.35, 8.31] according to wind log law.
 
 gp_kernel = CompositeWindKernel(kernel_xy,kernel_z)
@@ -82,7 +84,7 @@ kernel_xy = SquaredExponentialKernel(l,σs)
 
 d = 0.0
 zₒ = 0.05
-fₓ = z->z^2/10
+fₓ = z -> average(Y)
 kernel_z = WindLogLawKernel(gp_mean,d,zₒ,fₓ)
 
 X = [[i,j,5] for i in 1.0:4.0 for j in 1.0:4.0]

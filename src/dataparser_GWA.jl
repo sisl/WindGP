@@ -4,7 +4,6 @@ using DelimitedFiles
 using GaussianProcesses
 using Plots
 include("./utils/misc.jl"),
-include("./utils/linexp_kernel.jl")
 
 ######## Parameters ########
 
