@@ -17,12 +17,12 @@ struct GaussianProcess <: GP
     σn::Float64      # noise variance
 end
 
-struct CustomMean <: Mean
-    M::Union{Function, Dict}      # an object that returns the mean for any location x.
-end
-
 struct ConstantMean <: Mean
     M::Union{Function, Dict}
+end
+
+struct CustomMean <: Mean
+    M::Union{Function, Dict}      # an object that returns the mean for any location x.
 end
 
 struct SquaredExponentialKernel <: Kernel
@@ -39,6 +39,57 @@ struct SquaredExponentialKernel <: Kernel
         new(l,σs,K)
     end
 end
+
+struct WindLogLawKernel <: Kernel
+    """ Considers only the z-dimension"""
+    m::Mean                       # mean function
+    d::Float64                    # zero-plane displacement
+    zₒ::Float64                   # roughness length
+    fₓ::Union{Function, Dict}     # object that outputs y = f(x)
+    K::Function                   # function of the kernel
+
+    function WindLogLawKernel(m::Mean, d::Float64, zₒ::Float64, fₓ::Union{Function, Dict})
+        function K(z, z_star; m::Mean=m, d::Float64=d, zₒ::Float64=zₒ, fₓ::Union{Function, Dict}=fₓ)
+            m = m.M
+            uₓ = fₓ(z)
+
+            # Calculate u(z_star)/u(z).
+            function logLaw(z_star, z, zₒ, d)
+                ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
+
+                if z_star < z
+                    if ratio > 1
+                        return ratio
+                    else 
+                        return 1/ratio
+                    end
+                
+                else    # z_star >= z
+                    if ratio > 1
+                        return 1/ratio
+                    else 
+                        return ratio
+                    end
+                end
+            end
+            
+            return (logLaw(z_star, z, zₒ, d) - m(z_star)/uₓ) / (1-m(z)/uₓ)
+        end
+        new(m,d,zₒ,fₓ,K)
+    end
+end
+
+struct CompositeWindKernel <: Kernel
+    K1::Kernel      # Kernel 1 (x,y)
+    K2::Kernel      # Kernel 2 (z)
+    K::Function     # Combination of Kernel 1 and Kernel 2
+
+    function CompositeWindKernel(K1::Kernel, K2::Kernel)
+        K(x, x_star, K1::Kernel=K1, K2::Kernel=K2) = K1.K(x[1:2], x_star[1:2]) * K2.K(x[3], x_star[3])
+        new(K1,K2,K)
+    end
+end
+
 
 function predictPosterior(X_star, gp::GP)
     # Uses entire covariance matrix.
