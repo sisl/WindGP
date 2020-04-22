@@ -82,14 +82,14 @@ l = exp(1)
 gp_mean = ConstantMean(x->0)
 kernel_xy = SquaredExponentialKernel(l,σs)
 
-d = 0.0
-zₒ = 0.05
-fₓ = z -> average(Y)
-kernel_z = WindLogLawKernel(gp_mean,d,zₒ,fₓ)
-
 X = [[i,j,5] for i in 1.0:4.0 for j in 1.0:4.0]
 Y = [7,9,8,6,9,8,10,11,10,11,12,13,11,14,13,15]
 X_star = [[i,j,5] for i in 1.5:1.0:3.5 for j in 1.5:1.0:3.5]
+
+d = 0.0
+zₒ = 0.05
+fₓ = z -> average(Y)   # you will get NaN in K2 if you set this to zero.
+kernel_z = WindLogLawKernel(gp_mean,d,zₒ,fₓ)
 
 gp_kernel = CompositeWindKernel(kernel_xy,kernel_z)
 gp = GaussianProcess(X,Y,gp_mean,gp_kernel,0.0)

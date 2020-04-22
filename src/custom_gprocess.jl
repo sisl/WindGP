@@ -116,5 +116,5 @@ function predictPosterior(X_star, gp::GP)
 
     makeHermitian!(σ_star)    # gets rid of round-off errors.
 
-    gp_dist = MvNormal(μ_star,σ_star)
+    gp_dist = Distributions.MvNormal(μ_star,σ_star)
 end
