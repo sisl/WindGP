@@ -17,6 +17,10 @@ function dropBelowThreshold!(A; threshold=eps(Float64))
     end 
 end
 
+function exactLogLaw(z_star::Number, z::Number, zₒ, d)
+    return log((z_star-d)/zₒ) / log((z-d)/zₒ)
+end
+
 function euclidean_dist(a::CartesianIndex,b::CartesianIndex)
     diff = abs(a-b).I
     return sqrt(diff[1]^2 + diff[2]^2)
