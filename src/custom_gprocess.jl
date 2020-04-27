@@ -106,7 +106,13 @@ function predictPosterior(X_star, gp::GP)
         return σs^2 * exp(-r_sq/(2*l))
     end
 
-    K_X = [k(x1,x2) for x1 in X, x2 in X]
+    function ck(x1,x2;ll=1000)
+        r = x1[3] - x2[3]
+        r_sq = abs(r)
+        return exp(-r_sq/(2*ll))
+    end
+
+    K_X = [k(x1,x2)*ck(x1,x2) for x1 in X, x2 in X]
     # K_X .*= eye(length(X)) .* length(X)
     
 
@@ -114,7 +120,7 @@ function predictPosterior(X_star, gp::GP)
     K_XsX = [k(x_star,x) for x_star in X_star, x in X]
     K_XXs = [k(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
 
-    K_XsX = [sek(x1[1:2], x2[1:2])*exactLogLaw(x1[3], x2[3], gp.kernel.K2.zₒ, gp.kernel.K2.d) for x1 in X_star, x2 in X]
+    K_XsX = [sek(x1[1:2], x2[1:2])*exactLogLaw(x1[3], x2[3], gp.kernel.K2.zₒ, gp.kernel.K2.d)*ck(x1,x2) for x1 in X_star, x2 in X]
 
 
     # Calculate posterior mean and variance

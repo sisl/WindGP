@@ -145,9 +145,9 @@ gp_dist = predictPosterior(X_star,gp)
 
 ### CompositeWindKernel test2b (smaller): Only z is different (multiple altitudes to co-vary with).
 
-X = [[1.0,1.0,3.0], [1.0,1.0,5.0]]
+X = [[1.0,1.0,50], [1.0,1.0,150]]
 Y = [6.22, 7]
-X_star = [[1.0,1.0,4.0]]
+X_star = [[1.0,1.0,100.0],[1.0,1.0,200.0]]
 # Y_star should have mean: 6.66
 
 l = exp(1)
