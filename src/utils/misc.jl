@@ -11,7 +11,7 @@ end
 
 function dropBelowThreshold!(A; threshold=eps(Float64))
     for idx in eachindex(A)
-        if A[idx]<threshold
+        if abs(A[idx])<threshold
            A[idx]=0
         end
     end 

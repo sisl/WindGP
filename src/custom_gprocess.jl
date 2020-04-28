@@ -57,12 +57,12 @@ struct WindLogLawKernel <: Kernel
             function logLaw(z_star, z, zₒ, d)
                 ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
                 
-                if ratio > 1
-                    return 1/ratio
-                else
-                    return ratio
-                end
-                # return ratio
+                # if ratio > 1
+                #     return 1/ratio
+                # else
+                #     return ratio
+                # end
+                return ratio
 
             end
             
@@ -106,30 +106,41 @@ function predictPosterior(X_star, gp::GP)
         return σs^2 * exp(-r_sq/(2*l))
     end
 
-    function ck(x1,x2;ll=1000)
+    function lek(x1,x2;ll=10000)
         r = x1[3] - x2[3]
         r_sq = abs(r)
         return exp(-r_sq/(2*ll))
+        # return 1    # for debug.
     end
 
-    K_X = [k(x1,x2)*ck(x1,x2) for x1 in X, x2 in X]
-    # K_X .*= eye(length(X)) .* length(X)
+    function pureLogLaw(z_star, z, zₒ, d)
+        ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
+        if ratio > 1
+            return 1/ratio
+        else
+            return ratio
+        end
+        # return ratio
+    end
+
+    K_X = [k(x1,x2)*lek(x1,x2) for x1 in X, x2 in X]
+    K_X += 1e-6 .* eye(length(X))
     
 
-    K_Xs = [k(xs1,xs2) for xs1 in X_star, xs2 in X_star]
-    K_XsX = [k(x_star,x) for x_star in X_star, x in X]
-    K_XXs = [k(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
-
-    K_XsX = [sek(x1[1:2], x2[1:2])*exactLogLaw(x1[3], x2[3], gp.kernel.K2.zₒ, gp.kernel.K2.d)*ck(x1,x2) for x1 in X_star, x2 in X]
+    K_Xs = [k(xs1,xs2)*lek(xs1,xs2) for xs1 in X_star, xs2 in X_star]
+    K_XsX = [k(x_star,x)*lek(x_star,x) for x_star in X_star, x in X]
+    K_XXs = [k(x,x_star)*lek(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
 
 
-    # Calculate posterior mean and variance
+    # Calculates posterior mean and variance.
     μ_star = M_Xs + K_XsX * inv(K_X + Σ) * (Y - M_X)
 
-    K_XsX = [k(x_star,x) for x_star in X_star, x in X]
+    # TODO: The matrices entering the σ_star should use the pureLogLaw and return all values ≦1.
     σ_star = K_Xs - K_XsX * inv(K_X + Σ) * K_XXs
 
-    makeHermitian!(σ_star)    # gets rid of round-off errors.
+    dropBelowThreshold!(σ_star; threshold=1e-6)     # gets rid of small neg. numbers preventing Hermiticity.
+    makeHermitian!(σ_star; inflation=1e-6)          # gets rid of round-off errors preventing Hermiticity.
+    σ_star = abs.(σ_star)
 
     gp_dist = Distributions.MvNormal(μ_star,σ_star)
 end
