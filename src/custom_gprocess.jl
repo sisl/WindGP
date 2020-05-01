@@ -31,10 +31,24 @@ struct SquaredExponentialKernel <: Kernel
     K::Function     # function of the kernel
 
     function SquaredExponentialKernel(l::Float64, σs::Float64)
-        function K(x, x_star; l::Float64=l, σs::Float64=σs)
+        function K(x_star, x; l::Float64=l, σs::Float64=σs)
             r = x - x_star
             r_sq = dot_product(r,r)
             return σs^2 * exp(-r_sq/(2*l))
+        end
+        new(l,σs,K)
+    end
+end
+
+struct LinearExponentialKernel <: Kernel
+    l::Float64      # lengthscale
+    σs::Float64     # signal variance
+    K::Function     # function of the kernel
+
+    function LinearExponentialKernel(l::Float64, σs::Float64)
+        function K(x_star, x; l::Float64=l, σs::Float64=σs)
+            r = abs(x - x_star)
+            return σs^2 * exp(-r/(2*l))
         end
         new(l,σs,K)
     end
@@ -73,13 +87,28 @@ struct WindLogLawKernel <: Kernel
 end
 
 struct CompositeWindKernel <: Kernel
-    K1::Kernel      # Kernel 1 (x,y)
-    K2::Kernel      # Kernel 2 (z)
-    K::Function     # Combination of Kernel 1 and Kernel 2
+    Kxy::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (x,y)
+    Kz ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (z)
+    K  ::Function                                 # Function that composes Kxy and Kz
 
-    function CompositeWindKernel(K1::Kernel, K2::Kernel)
-        K(x, x_star, K1::Kernel=K1, K2::Kernel=K2) = K1.K(x[1:2], x_star[1:2]) * K2.K(x[3], x_star[3])
-        new(K1,K2,K)
+    function CompositeWindKernel(Kxy::AbstractArray{Kernel}, Kz::AbstractArray{Kernel})
+
+
+        function K(x, x_star, Kxy::AbstractArray{Kernel}=Kxy, Kz::AbstractArray{Kernel}=Kz)          
+            K_val = 1
+
+            for kernel in Kxy
+                K_val *= kernel.K(x[1:2], x_star[1:2])
+            end
+
+            for kernel in Kz
+                K_val *= kernel.K(x[3], x_star[3])
+            end
+
+            return K_val
+        end
+        
+        new(Kxy,Kz,K)
     end
 end
 
@@ -97,39 +126,16 @@ function predictPosterior(X_star, gp::GP)
     M_X = [m(x) for x in X]
     M_Xs = [m(x_star) for x_star in X_star]
     
-    k = gp.kernel.K
+    k = gp.kernel.K     # composite kernel function.
     
 
-    function sek(x, x_star; l::Float64=l, σs::Float64=σs)
-        r = x - x_star
-        r_sq = dot_product(r,r)
-        return σs^2 * exp(-r_sq/(2*l))
-    end
-
-    function lek(x1,x2;ll=10000)
-        r = x1[3] - x2[3]
-        r_sq = abs(r)
-        return exp(-r_sq/(2*ll))
-        # return 1    # for debug.
-    end
-
-    function pureLogLaw(z_star, z, zₒ, d)
-        ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
-        if ratio > 1
-            return 1/ratio
-        else
-            return ratio
-        end
-        # return ratio
-    end
-
-    K_X = [k(x1,x2)*lek(x1,x2) for x1 in X, x2 in X]
+    K_X = [k(x1,x2) for x1 in X, x2 in X]
     K_X += 1e-6 .* eye(length(X))
     
 
-    K_Xs = [k(xs1,xs2)*lek(xs1,xs2) for xs1 in X_star, xs2 in X_star]
-    K_XsX = [k(x_star,x)*lek(x_star,x) for x_star in X_star, x in X]
-    K_XXs = [k(x,x_star)*lek(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
+    K_Xs = [k(xs1,xs2) for xs1 in X_star, xs2 in X_star]
+    K_XsX = [k(x_star,x) for x_star in X_star, x in X]
+    K_XXs = [k(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
 
 
     # Calculates posterior mean and variance.
@@ -138,7 +144,7 @@ function predictPosterior(X_star, gp::GP)
     # TODO: The matrices entering the σ_star should use the pureLogLaw and return all values ≦1.
     σ_star = K_Xs - K_XsX * inv(K_X + Σ) * K_XXs
 
-    dropBelowThreshold!(σ_star; threshold=1e-6)     # gets rid of small neg. numbers preventing Hermiticity.
+    # dropBelowThreshold!(σ_star; threshold=eps(Float64))     # gets rid of small neg. numbers preventing Hermiticity.
     makeHermitian!(σ_star; inflation=1e-6)          # gets rid of round-off errors preventing Hermiticity.
     σ_star = abs.(σ_star)
 
