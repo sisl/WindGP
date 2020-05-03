@@ -1,25 +1,16 @@
-# Parses the CFD data provided in ../data/DWA/
+# Parses the data provided in ../data/DWA/
 
 using DelimitedFiles
-# using GaussianProcesses
-# using Plots
 include("./utils/misc.jl")
-
-######## Parameters ########
-
-datapath = "../data/GWA/AltamontCA/"
-filename = "custom_wind-speed_100m.xyz"
-
-############################
 
 
 struct data_2D
     x:: Array{Float64}
     y:: Array{Float64}
-
     avgSpeed:: Array{Float64}
+
     function data_2D(datapath, filename)
-        data_read = readdlm(datapath*filename, ' ', Float64)
+        data_read = DelimitedFiles.readdlm(datapath*filename, ' ', Float64)
         
         x = data_read[:,1]
         y = data_read[:,2]
@@ -29,100 +20,21 @@ struct data_2D
     end
 end
 
-# Load data
-D = data_2D(datapath, filename)
-Map = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
-Map_100 = deepcopy(Map)
+function get_3D_data(farm; heights = [10, 50, 100, 150, 200])
+    
+    filename_t(h) = "custom_wind-speed_$(h)m.xyz"
+    datapath_t(loc) = "../data/GWA/$(loc)/"
+    datapath = datapath_t(farm)
 
-# Create GP
-# x_nm = stretch(D.x,1,2)
-# y_nm = stretch(D.y,1,2)
-# coords = vcat(x_nm',y_nm')
-# gp_2D_nm = GP(coords, D.avgSpeed, MeanZero(), SEIso(0.0,0.0))
+    data_3D = Dict{Int, Array{Float64,2}}()
 
+    for h in heights
+        filename = filename_t(h)
+        D = data_2D(datapath, filename)
+        h_data = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
+        
+        push!(data_3D, h=>h_data)
+    end
 
-# coords = vcat(D.x',D.y')
-# gp_2D = GP(coords, D.avgSpeed, MeanZero(), SEIso(0.0,0.0))
-
-# julia> extrema(coords[1,:])
-# (-121.80967731781246, -121.55717731781245)
-
-filename = "custom_wind-speed_150m.xyz"
-# Load data
-D = data_2D(datapath, filename)
-Map = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
-Map_150 = deepcopy(Map)
-
-# julia> extrema(coords[1,:])
-# (-121.80967731781246, -121.55717731781245)
-
-# julia> extrema(coords[2,:])
-# (37.63701874773503, 37.87451874773504)
-
-
-# loc = coords[1:2,[4,70,800]]
-# predict_f()
-
-
-filename = "custom_wind-speed_150m.xyz"
-# Load data
-D = data_2D(datapath, filename)
-Map = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
-Map_150 = deepcopy(Map)
-
-
-filename = "custom_wind-speed_200m.xyz"
-# Load data
-D = data_2D(datapath, filename)
-Map = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
-Map_200 = deepcopy(Map)
-
-
-# Test my Gaussian Processes module.
-include("custom_gprocess.jl")
-
-l = exp(1)
-σs = exp(2)
-σn = 0
-gp_mean = ConstantMean(x->0)
-
-
-# nx,ny = size(Map_100)
-nx = 10
-ny = 10
-
-X = []
-Y = []
-append!(X,[[i,j,100] for i in 1.0:nx for j in 1.0:ny])
-append!(Y,Array(reshape(Map_100'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
-# append!(X,[[i,j,200] for i in 1.0:nx for j in 1.0:ny])
-# append!(Y,Array(reshape(Map_200'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
-# append!(X,[[i,j,150] for i in 1.0:nx for j in 1.0:ny])
-# append!(Y,Array(reshape(Map_150'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
-
-d = 0.0
-zₒ = 0.05
-fₓ = z -> average(Y)   # you will get NaN in K2 if you set this to zero.
-
-X_star = []
-append!(X_star, [[i,j,150] for i in 1.0:nx for j in 1.0:ny])
-# append!(X_star, [[i,j,170] for i in 0.5:nx+0.5 for j in 0.5:ny+0.5])
-
-
-kernel_xy = Kernel[SquaredExponentialKernel(l,σs)]
-kernel_z = Kernel[WindLogLawKernel(gp_mean,d,zₒ,fₓ), LinearExponentialKernel(10000.0,1.0)]
-gp_kernel = CompositeWindKernel(kernel_xy,kernel_z)
-
-gp = GaussianProcess(X,Y,gp_mean,gp_kernel,0.0)
-gp_dist = predictPosterior(X_star,gp)
-
-
-
-Y_star = Array(reshape(gp_dist.μ, Int(nx), Int(ny))')
-# Y_star = Array(reshape(μ_star, Int(nx), Int(ny))')
-ground_truth = Map_150[1:Int(nx),1:Int(ny)]
-
-# Calculate error percentage.
-ErrorPct = (Y_star - ground_truth) ./ ground_truth *100
-
-
+    return data_3D
+end

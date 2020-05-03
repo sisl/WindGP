@@ -208,3 +208,57 @@ kernel_z = WindLogLawKernel(gp_mean,d,zₒ,fₓ)
 gp_kernel = CompositeWindKernel(kernel_xy,kernel_z)
 gp = GaussianProcess(X,Y,gp_mean,gp_kernel,0.0)
 gp_dist = predictPosterior(X_star,gp)
+
+
+
+### GWA tests.
+
+include("../src/dataparser_GWA.jl")
+
+farm = "AltamontCA"
+Map = get_3D_data(farm)
+
+Map_100, Map_150, Map_200 = Map[100], Map[150], Map[200]
+
+l = exp(1)
+σs = exp(2)
+σn = 0
+gp_mean = ConstantMean(x->0)
+
+
+# nx,ny = size(Map_100)
+nx = 5
+ny = 5
+
+X = []
+Y = []
+append!(X,[[i,j,100] for i in 1.0:nx for j in 1.0:ny])
+append!(Y,Array(reshape(Map_100'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
+# append!(X,[[i,j,200] for i in 1.0:nx for j in 1.0:ny])
+# append!(Y,Array(reshape(Map_200'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
+# append!(X,[[i,j,150] for i in 1.0:nx for j in 1.0:ny])
+# append!(Y,Array(reshape(Map_150'[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
+
+d = 0.0
+zₒ = 0.05
+fₓ = z -> average(Y)   # you will get NaN in K2 if you set this to zero.
+
+X_star = []
+append!(X_star, [[i,j,150] for i in 1.0:nx for j in 1.0:ny])
+# append!(X_star, [[i,j,170] for i in 0.5:nx+0.5 for j in 0.5:ny+0.5])
+
+
+kernel_xy = Kernel[SquaredExponentialKernel(l,σs)]
+kernel_z = Kernel[WindLogLawKernel(gp_mean,d,zₒ,fₓ)]
+gp_kernel = CompositeWindKernel(kernel_xy,kernel_z)
+
+gp = GaussianProcess(X,Y,gp_mean,gp_kernel,0.0)
+gp_dist = predictPosterior(X_star,gp)
+
+
+Y_star = Array(reshape(gp_dist.μ, Int(nx), Int(ny))')
+# Y_star = Array(reshape(μ_star, Int(nx), Int(ny))')
+ground_truth = Map_150[1:Int(nx),1:Int(ny)]
+
+# Calculate error percentage.
+ErrorPct = (Y_star - ground_truth) ./ ground_truth *100

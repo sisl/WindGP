@@ -93,7 +93,6 @@ struct CompositeWindKernel <: Kernel
 
     function CompositeWindKernel(Kxy::AbstractArray{Kernel}, Kz::AbstractArray{Kernel})
 
-
         function K(x, x_star, Kxy::AbstractArray{Kernel}=Kxy, Kz::AbstractArray{Kernel}=Kz)          
             K_val = 1
 
