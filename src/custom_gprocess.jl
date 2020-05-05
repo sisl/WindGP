@@ -3,6 +3,9 @@
 # Finally, a faster sampler will be designed.
 
 using Distributions
+using ProgressBars
+using DataStructures
+
 include("./utils/misc.jl")
 
 abstract type GP end
@@ -18,99 +21,172 @@ struct GaussianProcess <: GP
 end
 
 struct ConstantMean <: Mean
-    M::Union{Function, Dict}
+    M::Union{Dict, DefaultDict}
 end
 
 struct CustomMean <: Mean
-    M::Union{Function, Dict}      # an object that returns the mean for any location x.
+    M::Union{Dict, DefaultDict}      # an object that returns the mean for any location x.
 end
+
+
 
 struct SquaredExponentialKernel <: Kernel
     l::Float64      # lengthscale
     σs::Float64     # signal variance
-    K::Function     # function of the kernel
-
-    function SquaredExponentialKernel(l::Float64, σs::Float64)
-        function K(x_star, x; l::Float64=l, σs::Float64=σs)
-            r = x - x_star
-            r_sq = dot_product(r,r)
-            return σs^2 * exp(-r_sq/(2*l))
-        end
-        new(l,σs,K)
-    end
 end
+
+function getKernelValue(x_star, x, kernel::SquaredExponentialKernel)    
+    l, σs  = kernel.l, kernel.σs
+    r = x - x_star
+    r_sq = dot_product(r,r)
+    return σs^2 * exp(-r_sq/(2*l))
+end
+
+
 
 struct LinearExponentialKernel <: Kernel
     l::Float64      # lengthscale
     σs::Float64     # signal variance
-    K::Function     # function of the kernel
-
-    function LinearExponentialKernel(l::Float64, σs::Float64)
-        function K(x_star, x; l::Float64=l, σs::Float64=σs)
-            r = abs(x - x_star)
-            return σs^2 * exp(-r/(2*l))
-        end
-        new(l,σs,K)
-    end
 end
+
+function getKernelValue(x_star, x, kernel::LinearExponentialKernel)    
+    l, σs  = kernel.l, kernel.σs
+    r = abs(x - x_star)
+    return σs^2 * exp(-r/(2*l))
+end
+
+
+struct CustomTripleKernel <: Kernel
+    
+    # SquaredExponentialKernel
+    l_sq::Float64      # lengthscale
+    σs_sq::Float64     # signal variance
+
+    # LinearExponentialKernel
+    l_lin::Float64      # lengthscale
+    σs_lin::Float64     # signal variance
+
+    # WindLogLawKernel
+    m::Mean                                     # mean function
+    d::Float64                                  # zero-plane displacement
+    zₒ::Float64                                 # roughness length
+    fₓ::Union{Dict, DefaultDict}                # object that outputs y = f(x)
+end
+
+
 
 struct WindLogLawKernel <: Kernel
     """ Considers only the z-dimension"""
-    m::Mean                       # mean function
-    d::Float64                    # zero-plane displacement
-    zₒ::Float64                   # roughness length
-    fₓ::Union{Function, Dict}     # object that outputs y = f(x)
-    K::Function                   # function of the kernel
-
-    function WindLogLawKernel(m::Mean, d::Float64, zₒ::Float64, fₓ::Union{Function, Dict})
-        function K(z_star, z; m::Mean=m, d::Float64=d, zₒ::Float64=zₒ, fₓ::Union{Function, Dict}=fₓ)
-            m = m.M
-            uₓ = fₓ(z)
-
-            # Calculate u(z_star)/u(z).
-            function logLaw(z_star, z, zₒ, d)
-                ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
-                
-                # if ratio > 1
-                #     return 1/ratio
-                # else
-                #     return ratio
-                # end
-                return ratio
-
-            end
-            
-            return (logLaw(z_star, z, zₒ, d) - m(z_star)/uₓ) / (1 - m(z)/uₓ)
-        end
-        new(m,d,zₒ,fₓ,K)
-    end
+    m::Mean                                     # mean function
+    d::Float64                                  # zero-plane displacement
+    zₒ::Float64                                 # roughness length
+    fₓ::Union{Dict, DefaultDict}                # object that outputs y = f(x)
 end
+
+function getKernelValue(z_star, z, kernel::WindLogLawKernel)    
+    m_dict, d, zₒ, fₓ =  kernel.m.M, kernel.d, kernel.zₒ, kernel.fₓ
+    m(x) = m_dict[x]
+    uₓ = fₓ[z]
+    ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
+    return (ratio - m(z_star)/uₓ) / (1 - m(z)/uₓ)
+end
+
+
 
 struct CompositeWindKernel <: Kernel
     Kxy::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (x,y)
     Kz ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (z)
-    K  ::Function                                 # Function that composes Kxy and Kz
-
-    function CompositeWindKernel(Kxy::AbstractArray{Kernel}, Kz::AbstractArray{Kernel})
-
-        function K(x, x_star, Kxy::AbstractArray{Kernel}=Kxy, Kz::AbstractArray{Kernel}=Kz)          
-            K_val = 1
-
-            for kernel in Kxy
-                K_val *= kernel.K(x[1:2], x_star[1:2])
-            end
-
-            for kernel in Kz
-                K_val *= kernel.K(x[3], x_star[3])
-            end
-
-            return K_val
-        end
-        
-        new(Kxy,Kz,K)
-    end
 end
 
+
+
+# function fill_K_matrix(k_func::Function, rows::Array, cols::Array)
+
+#     row_len, col_len = length(rows), length(cols)
+#     K_matrix = Array{Float64,2}(undef, row_len, col_len)
+    
+#     for (i, r) in tqdm(enumerate(rows))
+#         for (j, c) in enumerate(cols)
+#             if i < j            # upper triangle
+#                 nothing
+#             elseif i > j       # lower triangle
+#                 nothing
+#             else                # diagonal
+#                 nothing
+#             end
+
+#             K_matrix[i,j] = k_func(r,c)
+
+#         end
+#     end
+
+
+#     # Upper triangle
+#     kk = kernel_z[1].K
+#     for (i, r) in tqdm(enumerate(rows[1:end-1]))
+#         for (j, c) in enumerate(cols[i+1:end])
+
+#             K_matrix[i,j+i] = kk(r[3],c[3])
+
+#         end
+#     end
+
+#     return K_matrix
+
+# end
+
+
+function getKernelValue(x_star, x, kernel::CompositeWindKernel)    
+    Kxy, Kz = kernel.Kxy, kernel.Kz
+    K_val = 1
+
+    for kernel in Kxy
+        K_val *= getKernelValue(x_star[1:2], x[1:2], kernel)
+    end
+
+    for kernel in Kz
+        K_val *= getKernelValue(x_star[3], x[3], kernel)
+    end
+
+    return K_val
+end
+
+function getKernelMatrix(X_star, X, kernel::CustomTripleKernel)    
+    l_sq, σs_sq  = kernel.l_sq, kernel.σs_sq
+    l_lin, σs_lin  = kernel.l_lin, kernel.σs_lin
+    m, d, zₒ, fₓ =  kernel.m.M, kernel.d, kernel.zₒ, kernel.fₓ
+
+    K_matrix = Array{Float64,2}(undef, length(X_star), length(X))
+
+    for i in tqdm(1:length(X_star))
+        # println("$i of $(length(X_star))")
+        for (j,x) in enumerate(X)
+            k_val = 1
+            
+            x_star = X_star[i]
+            
+            z_star = x_star[3]
+            z = x[3]
+            uₓ = fₓ[z]
+
+            # SquaredExponentialKernel
+            r = x[1:2] - x_star[1:2]
+            r_sq = dot_product(r,r)
+            k_val *= σs_sq^2 * exp(-r_sq/(2*l_sq))
+
+            # LinearExponentialKernel
+            r = abs(z - z_star)
+            k_val *= σs_lin^2 * exp(-r/(2*l_lin))
+
+            # WindLogLawKernel
+            ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
+            k_val *= (ratio - m[z_star]/uₓ) / (1 - m[z]/uₓ)
+
+            K_matrix[i,j] = k_val
+        end
+    end
+    return K_matrix
+end
 
 function predictPosterior(X_star, gp::GP)
     # Uses entire covariance matrix.
@@ -121,20 +197,22 @@ function predictPosterior(X_star, gp::GP)
     σn = gp.σn
     Σ = σn .* eye(length(X))
 
-    m = gp.mean.M
+    m_dict = gp.mean.M
+    m(x) = m_dict[x]
+
     M_X = [m(x) for x in X]
     M_Xs = [m(x_star) for x_star in X_star]
     
-    k = gp.kernel.K     # composite kernel function.
-    
+    kernel = gp.kernel                                      # composite kernel.
+    k(x_star, x) = getKernelValue(x_star, x, kernel)        # function of kernel.
 
-    K_X = [k(x1,x2) for x1 in X, x2 in X]
+    K_X = [k(x1,x2) for x1 in X, x2 in tqdm(X)]
     K_X += 1e-6 .* eye(length(X))
     
 
-    K_Xs = [k(xs1,xs2) for xs1 in X_star, xs2 in X_star]
-    K_XsX = [k(x_star,x) for x_star in X_star, x in X]
-    K_XXs = [k(x,x_star) for x in X, x_star in X_star]  # Array(K_XsX')
+    K_Xs = [k(xs1,xs2) for xs1 in X_star, xs2 in tqdm(X_star)]
+    K_XsX = [k(x_star,x) for x_star in X_star, x in tqdm(X)]
+    K_XXs = [k(x,x_star) for x in X, x_star in tqdm(X_star)]  # Array(K_XsX')
 
 
     # Calculates posterior mean and variance.
@@ -143,9 +221,56 @@ function predictPosterior(X_star, gp::GP)
     # TODO: The matrices entering the σ_star should use the pureLogLaw and return all values ≦1.
     σ_star = K_Xs - K_XsX * inv(K_X + Σ) * K_XXs
 
-    # dropBelowThreshold!(σ_star; threshold=eps(Float64))     # gets rid of small neg. numbers preventing Hermiticity.
+    dropBelowThreshold!(σ_star; threshold=1e-6)     # gets rid of small neg. numbers preventing Hermiticity.
     makeHermitian!(σ_star; inflation=1e-6)          # gets rid of round-off errors preventing Hermiticity.
     σ_star = abs.(σ_star)
+
+    gp_dist = Distributions.MvNormal(μ_star,σ_star)
+end
+
+
+function predictPosteriorFaster(X_star, gp::GP)
+    # Uses entire covariance matrix.
+
+    X = gp.X
+    Y = gp.Y
+    
+    σn = gp.σn
+    Σ = σn .* eye(length(X))
+
+    m_dict = gp.mean.M
+    m(x) = m_dict[x]
+
+    M_X = [m(x) for x in X]
+    M_Xs = [m(x_star) for x_star in X_star]
+    
+    kernel = gp.kernel                                      # composite kernel.
+    # k(x_star, x) = getKernelValue(x_star, x, kernel)        # function of kernel.
+
+    # K_X = [k(x1,x2) for x1 in X, x2 in tqdm(X)]
+    K_X = getKernelMatrix(X,X,kernel)
+    K_X += 1e-6 .* eye(length(X))
+    
+    # K_Xs = [k(xs1,xs2) for xs1 in X_star, xs2 in tqdm(X_star)]
+    K_Xs = getKernelMatrix(X_star,X_star,kernel)
+
+    # K_XsX = [k(x_star,x) for x_star in X_star, x in tqdm(X)]
+    K_XsX = getKernelMatrix(X_star,X,kernel)
+
+    # K_XXs = [k(x,x_star) for x in X, x_star in tqdm(X_star)]
+    K_XXs = getKernelMatrix(X,X_star,kernel)
+
+    # Calculates posterior mean and variance.
+    μ_star = M_Xs + K_XsX * inv(K_X + Σ) * (Y - M_X)
+
+    # TODO: The matrices entering the σ_star should use the pureLogLaw and return all values ≦1.
+    # makePosDef!(K_Xs)
+
+    σ_star = K_Xs - K_XsX * inv(K_X + Σ) * K_XXs
+
+    # dropBelowThreshold!(σ_star; threshold=1e-6)     # gets rid of small neg. numbers preventing Hermiticity.
+    makeHermitian!(σ_star; inflation=1e-4)          # gets rid of round-off errors preventing Hermiticity.
+    # σ_star = abs.(σ_star)
 
     gp_dist = Distributions.MvNormal(μ_star,σ_star)
 end

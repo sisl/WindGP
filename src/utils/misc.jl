@@ -9,6 +9,17 @@ function makeHermitian!(A; inflation=1e-6)
     A[:,:] = A[:,:] + inflation .* eye(size(A,1))   # prevent singularity.
 end    
 
+# function makePosDef!(A)
+
+#     row_len, col_len = size(A)
+
+#     for (i, r) in tqdm(enumerate(rows[1:end-1]))
+#         for (j, c) in enumerate(cols[i+1:end])
+
+
+
+# end
+
 function dropBelowThreshold!(A; threshold=eps(Float64))
     for idx in eachindex(A)
         if abs(A[idx]) < threshold
