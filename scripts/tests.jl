@@ -213,11 +213,12 @@ gp_dist = predictPosterior(X_star,gp)
 
 ### GWA tests.
 
+include("../src/custom_gprocess.jl")
 include("../src/dataparser_GWA.jl")
 using DataStructures
 
 farm = "AltamontCA"
-Map = get_3D_data(farm, heights=[100,150,200])
+Map = get_3D_data(farm, altitudes=[100,150,200])
 
 Map_100, Map_150, Map_200 = Map[100], Map[150], Map[200]
 
@@ -233,10 +234,6 @@ append!(X,[[i,j,200] for i in 1.0:nx for j in 1.0:ny])
 append!(Y,Array(reshape(Map_200[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
 # append!(X,[[i,j,150] for i in 1.0:nx for j in 1.0:ny])
 # append!(Y,Array(reshape(Map_150[1:Int(nx),1:Int(ny)], Int(nx*ny),1)))
-
-d = 0.0
-zₒ = 0.05
-fₓ = DefaultDict(average(Y))            # you will get NaN in K2 if you set this to zero.
 
 X_star = []
 append!(X_star, [[i,j,150] for i in 1.0:nx for j in 1.0:ny])
@@ -264,7 +261,7 @@ l_lin = 10000.0
 # WindLogLawKernel PARAMS
 d = 0.0
 zₒ = 0.05
-fₓ = DefaultDict(average(Y))            # you will get division by zero if you set this to zero.
+fₓ = DefaultDict(average(Y))             # you will get division by zero if you set this to zero.
 
 gp_kernel = CustomTripleKernel(l_sq, σs_sq, l_lin, σs_lin, d, zₒ, fₓ, gp_mean)
 gp = GaussianProcess(X, Y, gp_mean, gp_kernel, σn_gp)

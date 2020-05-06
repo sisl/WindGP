@@ -20,7 +20,7 @@ struct data_2D
     end
 end
 
-function get_3D_data(farm; heights = [10, 50, 100, 150, 200])
+function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200])
     
     filename_t(h) = "custom_wind-speed_$(h)m.xyz"
     datapath_t(loc) = "../data/GWA/$(loc)/"
@@ -28,7 +28,7 @@ function get_3D_data(farm; heights = [10, 50, 100, 150, 200])
 
     data_3D = Dict{Int, Array{Float64,2}}()
 
-    for h in heights
+    for h in altitudes
         filename = filename_t(h)
         D = data_2D(datapath, filename)
         h_data = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
