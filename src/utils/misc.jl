@@ -29,19 +29,19 @@ end
 function dot_product(a::Union{Number,AbstractArray}, b::Union{Number,AbstractArray})    # Supports numbers, vectors and matrices.
     @assert size(a) == size(b) "Dimensions of the two inputs do not match."
     c = 0
-    for i = firstindex(a):lastindex(a)
+    for i in eachindex(a)
         c += a[i]*b[i]
     end
     return c
 end
 
-function normalize(a::AbstractArray)  # normalizes any-size Array.
+function normalizeArray(a::AbstractArray)  # normalizes any-size Array.
     norma = maximum(a)
     b = a./norma
     return b
 end
 
-function normalize!(a::AbstractArray)  # normalizes any-size Array in-place.
+function normalizeArray!(a::AbstractArray)  # normalizes any-size Array in-place.
     norma = maximum(a)
     for i = firstindex(a):lastindex(a)
         a[i] /= norma
