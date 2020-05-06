@@ -11,10 +11,14 @@ end
 
 function dropBelowThreshold!(A; threshold=eps(Float64))
     for idx in eachindex(A)
-        if A[idx]<threshold
-           A[idx]=0
+        if abs(A[idx]) < threshold
+           A[idx] = 0
         end
     end 
+end
+
+function exactLogLaw(z_star::Number, z::Number, zₒ, d)
+    return log((z_star-d)/zₒ) / log((z-d)/zₒ)
 end
 
 function euclidean_dist(a::CartesianIndex,b::CartesianIndex)
