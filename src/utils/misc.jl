@@ -17,6 +17,14 @@ function dropBelowThreshold!(A; threshold=eps(Float64))
     end 
 end
 
+function transform4GPjl(X)
+    X_gp = Array{Float64,2}(undef, 3, length(X))
+    for idx in 1:size(X,1)
+        X_gp[:,idx] = X[idx]
+    end
+    return X_gp
+end
+
 function exactLogLaw(z_star::Number, z::Number, zₒ, d)
     return log((z_star-d)/zₒ) / log((z-d)/zₒ)
 end
