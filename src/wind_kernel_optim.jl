@@ -1,8 +1,10 @@
 using Optim
 using LinearAlgebra: isposdef
 using Distributions
-include("../utils/wind_kernel.jl")
-include("../dataparser_GWA.jl")
+include("./dataparser_GWA.jl")
+include("./utils/wind_kernel.jl")
+include("./utils/misc.jl")
+
 
 function objFunctionValue(X_gp, Y, d, opt_init)
     """ Notice that this we are trying to minimize this function, therefore the negative of mll is returned. """
@@ -22,6 +24,14 @@ function objFunctionValue(X_gp, Y, d, opt_init)
     end
 end
 
+function fetchOptimizedGP(X_gp, Y, d, opt_final)
+    l_sq, σs_sq, l_lin, σs_lin, zₒ = opt_final
+    j = CustomWindKernel(l_sq, σs_sq, l_lin, σs_lin, d, zₒ)
+    gp = GPE(X_gp, Y, MeanConst(0.0), j)
+    return gp
+end
+
+
 
 farm = "AltamontCA"
 grid_dist = 220
@@ -29,8 +39,8 @@ grid_dist = 220
 Map = get_3D_data(farm; altitudes=[10, 50, 100, 150, 200])
 Map_150 = Map[150]
 
-nx = 10
-ny = 10
+nx = 20
+ny = 20
 
 X = []
 Y = []
@@ -72,9 +82,6 @@ opt_init = [l_sq, σs_sq, l_lin, σs_lin, zₒ]
 opt_init0 = deepcopy(opt_init)
 
 result = Optim.optimize(lambda -> objFunctionValue(X_gp, Y, d, lambda), opt_init, opt_method, opt_settings)
-
 opt_final = result.minimizer
-l_sq, σs_sq, l_lin, σs_lin, zₒ = opt_final
-j = CustomWindKernel(l_sq, σs_sq, l_lin, σs_lin, d, zₒ)
-gp = GPE(X_gp, Y, MeanConst(0.0), j)
 
+gp = fetchOptimizedGP(X_gp, Y, d, opt_final)

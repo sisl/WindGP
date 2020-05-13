@@ -34,6 +34,12 @@ function euclidean_dist(a::CartesianIndex,b::CartesianIndex)
     return sqrt(diff[1]^2 + diff[2]^2)
 end
 
+function euclidean_dist(a::AbstractArray,b::AbstractArray)
+    diff = abs.(a-b)
+    dp = dot_product(diff, diff)
+    return sqrt(dp)
+end
+
 function dot_product(a::Union{Number,AbstractArray}, b::Union{Number,AbstractArray})    # Supports numbers, vectors and matrices.
     @assert size(a) == size(b) "Dimensions of the two inputs do not match."
     c = 0
