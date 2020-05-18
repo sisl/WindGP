@@ -1,5 +1,6 @@
 using GaussianProcesses
 using LinearAlgebra: dot, logdet
+using Random
 
 mean = GaussianProcesses.mean
 Mean = GaussianProcesses.Mean
@@ -157,4 +158,11 @@ function GaussianProcesses.update_mll!(gp::GPE; noise::Bool=true, domean::Bool=t
     # Marginal log-likelihood
     gp.mll = - (dot(y, gp.alpha) + logdet(gp.cK) + log2π * gp.nobs) / 2
     gp
+end
+
+"""kernels/GP.jl, Line 134"""
+function Random.rand(gp::GPBase, Xs_gp::AbstractMatrix)
+    a,b = predict_y(gp, Xs_gp, full_cov=true)
+    c = Distributions.MvNormal(a,b)
+    rand(c)
 end

@@ -223,13 +223,13 @@ grid_dist = 220
 Map = get_3D_data(farm; altitudes=[10, 50, 100, 150, 200])
 Map_150 = Map[150]
 
-nx = 50
-ny = 50
+nx = 10
+ny = 10
 
 X = []
 Y = []
 
-for h in [10, 50, 100, 200]
+for h in [10, 50, 150, 100, 200]
     append!(X, [[j, i, Float64(h)] for i in 0.0:grid_dist:(nx-1)*grid_dist for j in 0.0:grid_dist:(ny-1)*grid_dist])
     # append!(X,[[i,j,Float64(h)] for i in 1.0:nx for j in 1.0:ny])
     append!(Y, vec(Map[h][1:nx,1:ny]))

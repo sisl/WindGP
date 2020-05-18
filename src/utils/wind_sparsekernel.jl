@@ -1,6 +1,7 @@
 using ProgressBars
 using GaussianProcesses
 using LinearAlgebra: dot, logdet
+using PDMats: PDMat
 
 mean = GaussianProcesses.mean
 Mean = GaussianProcesses.Mean
@@ -8,6 +9,7 @@ CovarianceStrategy = GaussianProcesses.CovarianceStrategy
 KernelData = GaussianProcesses.KernelData
 AbstractPDMat = GaussianProcesses.AbstractPDMat
 log2π = GaussianProcesses.log2π
+make_posdef! = GaussianProcesses.make_posdef!
 
 mutable struct CustomWindSparseKernel{T<:Real} <: Kernel
     # SquaredExponentialKernel
@@ -55,7 +57,7 @@ end
 function GaussianProcesses.cov!(cK::AbstractMatrix, k::CustomWindSparseKernel, X::AbstractMatrix, data::KernelData=GaussianProcesses.EmptyData())
     dim, nobs = size(X)
     (nobs,nobs) == size(cK) || throw(ArgumentError("cK has size $(size(cK)) and X has size $(size(X))"))
-    @inbounds for j in 1:nobs
+    @inbounds for j in tqdm(1:nobs)
         for i in 1:nobs
             cK[i,j] = GaussianProcesses.cov_ij(k, X, X, data, i, j, dim)
         end
@@ -173,9 +175,9 @@ end
 
 """kernels/GPE.jl, Line 195"""
 function GaussianProcesses.update_mll!(gp::GPE; noise::Bool=true, domean::Bool=true, kern::Bool=true)
-    # if kern | noise
-        # GaussianProcesses.update_cK!(gp)
-    # end
+    if kern | noise
+        GaussianProcesses.update_cK!(gp)
+    end
     μ = mean(gp.mean, gp.x)
     y = gp.y - μ
     
@@ -221,6 +223,26 @@ function getNearestNeighbors(Xs_gp, X_gp, n; return_coordinate=false)
     return NN
 end
 
+function getSparse_K(kernel, X1, X2)
+    """get a smaller cK matrix for a single x point"""
+    
+    X1_length = size(X1,2)
+    X2_length = size(X2,2)
+
+    cK = Array{Float64}(undef, X1_length, X2_length)
+
+    for i in 1:X1_length
+        x1 = X1[:,i]
+
+        for j in 1:X2_length
+            x2 = X2[:,j]
+            cK[i,j] = GaussianProcesses.cov_ij(kernel, x1, x2)
+        end
+    end
+
+    return cK
+end
+
 
 function getSparse_cK(gp, X_gp, neighbors_of_x, numNeighbors)
     """get a smaller cK matrix for a single x point"""
@@ -241,24 +263,54 @@ end
 function getSparse_mll(gp)
 
     X_gp = gp.x
-    numNeighbors = 10
-    NN = gp.kernel.NN
+    kernel = gp.kernel
+    NN = kernel.NN
+    cK = gp.cK
 
-    mll = 0
+    mll = Array{Float64}(undef, size(X_gp,2), 1)
 
-    for idx in 1:size(X_gp,2)
+    for idx in tqdm(1:size(X_gp,2))
         x = X_gp[:,idx]
-        neighbors_of_x = NN[x]
+        neighbors_of_x = sort(NN[x])
+        # neighbors_of_x = collect(1:499)  # TODO: remove this. (debug)
         
-        cK = getSparse_cK(gp, X_gp, neighbors_of_x, numNeighbors)
+        X_active = X_gp[:, neighbors_of_x]
+        
+        # K_xx = getSparse_K(kernel, X_active, X_active)
+        K_xx = cK.mat[neighbors_of_x, neighbors_of_x]
+    
+        K_fx = getSparse_K(kernel, x, X_active)
+        K_xf = getSparse_K(kernel, X_active, x)
+        K_f = GaussianProcesses.cov_ij(kernel, x, x)
+    
+        mean_f = GaussianProcesses.mean(gp.mean, gp.x)
+        
+        mf = mean_f[idx]
+        yf = gp.y[idx]
+        
+        mx = mean_f[neighbors_of_x]
+        yx = gp.y[neighbors_of_x]
+    
+        μ_star = mf + dot(K_fx, inv(K_xx) * (yx - mx))
+        # Σ_star = K_f - dot(K_fx, inv(K_xx) * K_xf)
+        
+        Σbuffer, chol = make_posdef!(K_xx, cK.chol.factors[neighbors_of_x, neighbors_of_x])
+        new_cK = PDMat(Σbuffer, chol)
 
-        nobs = numNeighbors + 1
-        y = gp.y[neighbors_of_x]
+        Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
+        Lck = GaussianProcesses.whiten!(new_cK, K_xf)
+        GaussianProcesses.subtract_Lck!(Σ_star, Lck)
 
-        invcK = inv(cK)
-        mll -= (dot(y, invcK * y) + logdet(cK) + log2π * nobs) / 2
+
+        noise = 0
+        # noise = exp(2*-2)+eps()
+        Σ_star = abs.(Σ_star[1] + noise)
+        
+        σ = sqrt(Σ_star)
+        
+        mll[idx] = -0.5*((yf - μ_star)/σ)^2 - 0.5*log(2*pi) - log(σ)
 
     end
 
-    return mll
+    return sum(mll)
 end

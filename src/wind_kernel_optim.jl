@@ -76,7 +76,7 @@ zₒ = 0.05
 
 # Optim.jl PARAMS
 opt_method = NelderMead()
-opt_settings = Optim.Options(show_trace=true, iterations = 300)
+opt_settings = Optim.Options(show_trace=true, iterations = 1)
 
 opt_init = [l_sq, σs_sq, l_lin, σs_lin, zₒ]
 opt_init0 = deepcopy(opt_init)
@@ -84,4 +84,17 @@ opt_init0 = deepcopy(opt_init)
 result = Optim.optimize(lambda -> objFunctionValue(X_gp, Y, d, lambda), opt_init, opt_method, opt_settings)
 opt_final = result.minimizer
 
-gp = fetchOptimizedGP(X_gp, Y, d, opt_final)
+gp_final = fetchOptimizedGP(X_gp, Y, d, opt_final)
+pred_mu, pred_sigma = predict_f(gp_final, Xs_gp)
+
+# Get mean predicted and ground truth values.
+Y_star = Array(reshape(pred_mu, Int(nx), Int(ny)))
+ground_truth = Map_150[1:Int(nx),1:Int(ny)]
+
+# Calculate error percentage.
+ErrorPct = (Y_star - ground_truth) ./ ground_truth *100
+AvgErrorPct = average(abs.(ErrorPct))
+
+# Sample randomly.
+rand_sample = rand(gp_final, Xs_gp)
+Y_rand = Array(reshape(rand_sample, Int(nx), Int(ny)))
