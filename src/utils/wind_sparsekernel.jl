@@ -204,9 +204,7 @@ function getNearestNeighbors(Xs_gp, X_gp, n; return_coordinate=false)
     NN = Dict{AbstractArray, AbstractArray}()
 
     println("## Getting all neighbors ##")
-    for idx in tqdm(1:size(Xs_gp,2))
-        # @show idx;
-        xs = Xs_gp[:,idx]
+    for xs in tqdm(eachcol(X_gp))
 
         temp = [euclidean_dist(xs,X_gp[:,jdx]) for jdx in 1:size(X_gp,2)]
         p = sortperm(temp)
@@ -216,6 +214,65 @@ function getNearestNeighbors(Xs_gp, X_gp, n; return_coordinate=false)
             NN[xs] = best_n
         else
             NN[xs] = p[1:n+1]              # deliberately include the point itself.
+        end
+
+    end
+
+    return NN
+end
+
+function getNearestNeighborsFaster(Xs_gp, X_gp, n, grid_dist, altitudes; return_coordinate=false)
+    """ Finds the closest neighbors of points in Xs_gp with respect to points in X_gp. """
+    """ Same as `getNearestNeighbors`, but does not search to entire space. """
+    X_gp_set = Set(eachcol(X_gp))
+    
+    if !return_coordinate
+        X_gp_idxs = Dict(item => idx for (idx,item) in enumerate(eachcol(X_gp)))
+        @show "entered"
+    end
+
+    # Key: A single coordinate.
+    # Val: An array of n-nearest neighbors.
+    NN = Dict{AbstractArray, AbstractArray}()
+
+    println("## Getting all neighbors ##")
+    for xs in tqdm(eachcol(X_gp))
+        
+        temp1 = Set()
+        jdx = 1
+
+        let jdx=jdx
+        while length(temp1) < n+1                   # deliberately include the point itself.
+            gs = grid_dist * jdx
+
+            for h in altitudes
+                push!(temp1, vcat(xs[1:2], h))
+
+                push!(temp1, vcat(xs[1]-gs, xs[2], h))
+                push!(temp1, vcat(xs[1]+gs, xs[2], h))
+                
+                push!(temp1, vcat(xs[1], xs[2]-gs, h))
+                push!(temp1, vcat(xs[1], xs[2]+gs, h))
+
+                push!(temp1, vcat(xs[1]-gs, xs[2]-gs, h))
+                push!(temp1, vcat(xs[1]+gs, xs[2]+gs, h))
+
+                push!(temp1, vcat(xs[1]-gs, xs[2]+gs, h))
+                push!(temp1, vcat(xs[1]+gs, xs[2]-gs, h))
+            end
+            jdx += 1
+            intersect!(temp1, X_gp_set)
+        end
+        end
+
+        temp = [euclidean_dist(xs,item) for item in temp1]
+        p = sortperm(temp)
+        best_n = collect(temp1)[p][1:n+1]           # deliberately include the point itself.
+
+        if return_coordinate
+            NN[xs] = transform4GPjl(best_n)
+        else
+            NN[xs] = [X_gp_idxs[item] for item in best_n]
         end
 
     end

@@ -35,8 +35,9 @@ end
 
 farm = "AltamontCA"
 grid_dist = 220
+altitudes=[10, 50, 100, 150, 200]
 
-Map = get_3D_data(farm; altitudes=[10, 50, 100, 150, 200])
+Map = get_3D_data(farm; altitudes=altitudes)
 Map_150 = Map[150]
 
 nx = 20
@@ -82,7 +83,8 @@ opt_init = [l_sq, σs_sq, l_lin, σs_lin, zₒ]
 opt_init0 = deepcopy(opt_init)
 
 numNeighbors = 10
-NN = getNearestNeighbors(X_gp, X_gp, numNeighbors)
+# NN = getNearestNeighbors(X_gp, X_gp, numNeighbors)
+NN = getNearestNeighborsFaster(X_gp, X_gp, numNeighbors, grid_dist, altitudes)
 
 result = Optim.optimize(lambda -> objFunctionValue(X_gp, Y, d, NN, lambda), opt_init, opt_method, opt_settings)
 opt_final = result.minimizer
@@ -188,16 +190,9 @@ function find_mll(numNeighbors)
     return mll
 end
 
-mu, sigma = predict_f(gp, gp.x)
-function doubleCheck_mll(gp, mu, sigma)
 
-    mll = 0
-    # mu, sigma = predict_f(gp, gp.x)
-
-    for (i,y) in enumerate(gp.y)
-        @show mll
-        mll += -0.5*((y - mu[i])/sigma[i]^2)^2 - 0.5*log(2*pi) - log(sigma[i]^2)
-        # mll -= 0.5*( (y-mu[i])^2*sigma[i] + log2π + 2*log(sqrt(sigma[i])) ) 
-    end
-    return mll
+function doubleCheck_mll(gp, X_gp)
+    μ_star, Σ_star = predict_f(gp, X_gp)
+    σ = sqrt.(abs.(Σ_star))
+    MLL = sum( -0.5*((Y - μ_star)./σ).^2 - 0.5*log(2*pi).*ones(gp.nobs,1) - log.(σ) )
 end
