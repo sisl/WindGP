@@ -2,6 +2,7 @@ using ProgressBars
 using GaussianProcesses
 using LinearAlgebra: dot, logdet
 using PDMats: PDMat
+using Random
 
 mean = GaussianProcesses.mean
 Mean = GaussianProcesses.Mean
@@ -10,6 +11,9 @@ KernelData = GaussianProcesses.KernelData
 AbstractPDMat = GaussianProcesses.AbstractPDMat
 log2π = GaussianProcesses.log2π
 make_posdef! = GaussianProcesses.make_posdef!
+update_cK! = GaussianProcesses.update_cK!
+alloc_cK = GaussianProcesses.alloc_cK
+get_value = GaussianProcesses.get_value
 
 mutable struct CustomWindSparseKernel{T<:Real} <: Kernel
     # SquaredExponentialKernel
@@ -57,7 +61,7 @@ end
 function GaussianProcesses.cov!(cK::AbstractMatrix, k::CustomWindSparseKernel, X::AbstractMatrix, data::KernelData=GaussianProcesses.EmptyData())
     dim, nobs = size(X)
     (nobs,nobs) == size(cK) || throw(ArgumentError("cK has size $(size(cK)) and X has size $(size(X))"))
-    @inbounds for j in tqdm(1:nobs)
+    @inbounds for j in 1:nobs
         for i in 1:nobs
             cK[i,j] = GaussianProcesses.cov_ij(k, X, X, data, i, j, dim)
         end
@@ -142,42 +146,117 @@ end
 
 @inline GaussianProcesses.cov_ij(k::CustomWindSparseKernel, X1::AbstractMatrix, X2::AbstractMatrix, data::KernelData, i::Int, j::Int, dim::Int) = GaussianProcesses.cov_ij(k, X1, X2, i, j, dim)
 
-function GaussianProcesses.predictMVN!(gp, Kxx, Kff, Kfx, Kxf, mx, αf)
-    # mu = mx + Kfx' * αf       # this is old.
-    mu = mx + Kxf * αf          # this is new. Kxf need not be equal to Kfx'.
-    Lck = GaussianProcesses.whiten!(Kff, Kfx)
-    GaussianProcesses.subtract_Lck!(Kxx, Lck)
+# function GaussianProcesses.predictMVN!(gp, Kxx, Kff, Kfx, Kxf, mx, αf)
+#     # mu = mx + Kfx' * αf       # this is old.
+#     mu = mx + Kxf * αf          # this is new. Kxf need not be equal to Kfx'.
+#     Lck = GaussianProcesses.whiten!(Kff, Kfx)
+#     GaussianProcesses.subtract_Lck!(Kxx, Lck)
 
-    # println("I AM ENTERED.")  # for debug
-    return mu, abs.(Kxx)
+#     # println("I AM ENTERED.")  # for debug
+#     return mu, abs.(Kxx)
+# end
+
+function GaussianProcesses.predict_y(gp::GPE, xpred::AbstractVector, numNeighbors::Int, grid_dist::Int, altitudes::AbstractArray)  # predict a single point, with added noise
+    μ, σ2 = predict_f(gp, xpred, numNeighbors, grid_dist, altitudes)
+    return μ, σ2 .+ noise_variance(gp)
 end
 
-function GaussianProcesses.predictMVN(gp, xpred::AbstractMatrix, xtrain::AbstractMatrix, ytrain::AbstractVector, kernel::Kernel, meanf::Mean, alpha::AbstractVector, covstrat::CovarianceStrategy, Ktrain::AbstractPDMat)
-    crossdata = KernelData(kernel, xtrain, xpred)
-    priordata = KernelData(kernel, xpred, xpred)
-    Kcross = GaussianProcesses.cov(kernel, xtrain, xpred, crossdata)
-    Kcross2 = GaussianProcesses.cov(kernel, xpred, xtrain, crossdata)     # this is newly added.
-    Kpred = GaussianProcesses.cov(kernel, xpred, xpred, priordata)
-    mx = mean(meanf, xpred)
+function GaussianProcesses.predict_f(gp::GPE, xpred::AbstractVector, numNeighbors::Int, grid_dist::Int, altitudes::AbstractArray)  # predict a single point
+    
+    X_gp = gp.x
+    kernel = gp.kernel
 
-    mu, Sigma_raw = GaussianProcesses.predictMVN!(gp, Kpred, Ktrain, Kcross, Kcross2, mx, alpha)
-    return mu, Sigma_raw
+    neighbors_of_xpred = getNearestNeighborsFaster(xpred, X_gp, numNeighbors, grid_dist, altitudes)
+    num_of_neigh = length(neighbors_of_xpred)
+
+    X_active = X_gp[:, neighbors_of_xpred]
+    empty_cK = alloc_cK(num_of_neigh) 
+
+    K_xx = active_cK = update_cK!(empty_cK, X_active, gp.kernel, get_value(gp.logNoise), gp.data, gp.covstrat)
+
+    K_fx = getSparse_K(kernel, xpred, X_active)
+    K_xf = getSparse_K(kernel, X_active, xpred)
+    K_f = GaussianProcesses.cov_ij(kernel, xpred, xpred)
+
+    mf = mean(gp.mean, xpred)
+    mx = mean(gp.mean, X_active)
+    yx = gp.y[neighbors_of_xpred]
+
+    μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))    
+    Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
+    Lck = GaussianProcesses.whiten!(active_cK, K_xf)
+    GaussianProcesses.subtract_Lck!(Σ_star, Lck)
+
+    Σ_star = abs.(Σ_star[1])
+    # σ_star = sqrt(Σ_star)
+
+    return μ_star, Σ_star
 end
 
-"""kernels/GPE.jl, Line 380"""
-function GaussianProcesses.predict_full(gp::GPE, xpred::AbstractMatrix)
-    if typeof(gp.kernel) <: CustomWindSparseKernel
-        GaussianProcesses.predictMVN(gp, xpred, gp.x, gp.y, gp.kernel, gp.mean, gp.alpha, gp.covstrat, gp.cK)
-    else   # Default behavior of GaussianProcesses.jl.
-        GaussianProcesses.predictMVN(xpred, gp.x, gp.y, gp.kernel, gp.mean, gp.alpha, gp.covstrat, gp.cK)
+function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::AbstractArray, numNeighbors::Int, grid_dist_Xs::Int)
+    """ Randomly samples an entire farm, based on Sequential Gaussian Simulation """
+    X_gp = gp.x
+    
+    if size(Xs_gp) == (3,)      # if there is only one point, make AbstractArray 2 dimensional.
+        Xs_gp = transform4GPjl([Xs_gp])
     end
+    
+    NN_xs = getNearestNeighborsFaster(Xs_gp, Xs_gp, numNeighbors, grid_dist_Xs; return_as_list = true, return_coordinates=true)
+
+
+    Y = Dict(item => gp.y[idx] for (idx,item) in enumerate(eachcol(X_gp)))
+
+
+    # SampledXs = Array{Float64}(undef, size(Xs_gp,2), 1)
+    prequal_samples = Set{Array{Float64,1}}()
+    prequal_samples_val = Set{Float64}()
+
+    for (i,xs) in enumerate(eachcol(Xs_gp))
+
+        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set(NN_xs[xs])))
+        neighbors_of_xs_in_X = getNearestNeighborsFaster(xs, X_gp, numNeighbors, grid_dist; return_coordinates=true)
+
+        closest_neighbors_of_xs = getNearestNeighbors(xs, hcat(transform4GPjl(neighbors_of_xs_in_Xs), neighbors_of_xs_in_X), numNeighbors; exclude_itself=true, return_coordinates=true)
+
+        num_of_neigh = size(closest_neighbors_of_xs, 2)
+        empty_cK = alloc_cK(num_of_neigh)
+        X_active = closest_neighbors_of_xs[:, sortperm(closest_neighbors_of_xs[end, :])]   # sort by altitude to prevent non-PSD.       
+
+        K_xx = active_cK = update_cK!(empty_cK, X_active, kernel, get_value(gp.logNoise), gp.data, gp.covstrat)
+        
+        K_fx = getSparse_K(kernel, xs, X_active)
+        K_xf = getSparse_K(kernel, X_active, xs)
+        K_f = GaussianProcesses.cov_ij(kernel, xs, xs)
+        
+        mf = mean(gp.mean, xs)
+        mx = mean(gp.mean, closest_neighbors_of_xs)
+
+
+        # TODO: implement this part.
+        yx = gp.y[closest_neighbors_of_xs]
+        
+        μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))        
+        Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
+        Lck = GaussianProcesses.whiten!(active_cK, K_xf)
+        GaussianProcesses.subtract_Lck!(Σ_star, Lck)
+        
+        Σ_star = abs.(Σ_star[1])
+
+        push!(prequal_samples, copy(xs))    # copy is sufficient since elements of Float64 are immutable.
+
+        # TODO: Make prediction for a single point, and add it to prequal_samples_val.
+    end
+
 end
+
+
+
 
 """kernels/GPE.jl, Line 195"""
 function GaussianProcesses.update_mll!(gp::GPE; noise::Bool=true, domean::Bool=true, kern::Bool=true)
-    if kern | noise
-        GaussianProcesses.update_cK!(gp)
-    end
+    # if kern | noise
+    #     GaussianProcesses.update_cK!(gp)
+    # end
     μ = mean(gp.mean, gp.x)
     y = gp.y - μ
     
@@ -192,92 +271,6 @@ function GaussianProcesses.update_mll!(gp::GPE; noise::Bool=true, domean::Bool=t
     # gp.mll = - (dot(y, gp.alpha) + logdet(gp.cK) + log2π * gp.nobs) / 2
     gp.mll = getSparse_mll(gp)
     gp
-end
-
-
-
-function getNearestNeighbors(Xs_gp, X_gp, n; return_coordinate=false)
-    """ Finds the closest neighbors of points in Xs_gp with respect to points in X_gp. """
-
-    # Key: A single coordinate.
-    # Val: An array of n-nearest neighbors.
-    NN = Dict{AbstractArray, AbstractArray}()
-
-    println("## Getting all neighbors ##")
-    for xs in tqdm(eachcol(X_gp))
-
-        temp = [euclidean_dist(xs,X_gp[:,jdx]) for jdx in 1:size(X_gp,2)]
-        p = sortperm(temp)
-
-        if return_coordinate
-            best_n = X_gp[:,p][:,(1:n+1)]  # deliberately include the point itself.
-            NN[xs] = best_n
-        else
-            NN[xs] = p[1:n+1]              # deliberately include the point itself.
-        end
-
-    end
-
-    return NN
-end
-
-function getNearestNeighborsFaster(Xs_gp, X_gp, n, grid_dist, altitudes; return_coordinate=false)
-    """ Finds the closest neighbors of points in Xs_gp with respect to points in X_gp. """
-    """ Same as `getNearestNeighbors`, but does not search to entire space. """
-    X_gp_set = Set(eachcol(X_gp))
-    
-    if !return_coordinate
-        X_gp_idxs = Dict(item => idx for (idx,item) in enumerate(eachcol(X_gp)))
-        @show "entered"
-    end
-
-    # Key: A single coordinate.
-    # Val: An array of n-nearest neighbors.
-    NN = Dict{AbstractArray, AbstractArray}()
-
-    println("## Getting all neighbors ##")
-    for xs in tqdm(eachcol(X_gp))
-        
-        temp1 = Set()
-        jdx = 1
-
-        let jdx=jdx
-        while length(temp1) < n+1                   # deliberately include the point itself.
-            gs = grid_dist * jdx
-
-            for h in altitudes
-                push!(temp1, vcat(xs[1:2], h))
-
-                push!(temp1, vcat(xs[1]-gs, xs[2], h))
-                push!(temp1, vcat(xs[1]+gs, xs[2], h))
-                
-                push!(temp1, vcat(xs[1], xs[2]-gs, h))
-                push!(temp1, vcat(xs[1], xs[2]+gs, h))
-
-                push!(temp1, vcat(xs[1]-gs, xs[2]-gs, h))
-                push!(temp1, vcat(xs[1]+gs, xs[2]+gs, h))
-
-                push!(temp1, vcat(xs[1]-gs, xs[2]+gs, h))
-                push!(temp1, vcat(xs[1]+gs, xs[2]-gs, h))
-            end
-            jdx += 1
-            intersect!(temp1, X_gp_set)
-        end
-        end
-
-        temp = [euclidean_dist(xs,item) for item in temp1]
-        p = sortperm(temp)
-        best_n = collect(temp1)[p][1:n+1]           # deliberately include the point itself.
-
-        if return_coordinate
-            NN[xs] = transform4GPjl(best_n)
-        else
-            NN[xs] = [X_gp_idxs[item] for item in best_n]
-        end
-
-    end
-
-    return NN
 end
 
 function getSparse_K(kernel, X1, X2)
@@ -301,46 +294,31 @@ function getSparse_K(kernel, X1, X2)
 end
 
 
-function getSparse_cK(gp, X_gp, neighbors_of_x, numNeighbors)
-    """get a smaller cK matrix for a single x point"""
-    
-    cK = Array{Float64}(undef, numNeighbors+1, numNeighbors+1)
-
-    for (r,i) in enumerate(neighbors_of_x)
-        x1 = X_gp[:,i]
-        for (c,j) in enumerate(neighbors_of_x)
-            x2 = X_gp[:,j]
-            cK[r,c] = GaussianProcesses.cov_ij(gp.kernel, x1, x2)
-        end
-    end
-
-    return cK
-end
-
-function getSparse_mll(gp)
+function getSparse_mll(gp; return_sum = true)
 
     X_gp = gp.x
     kernel = gp.kernel
     NN = kernel.NN
-    cK = gp.cK
+    # cK = gp.cK
 
     mll = Array{Float64}(undef, size(X_gp,2), 1)
 
     for idx in tqdm(1:size(X_gp,2))
         x = X_gp[:,idx]
         neighbors_of_x = sort(NN[x])
-        # neighbors_of_x = collect(1:499)  # TODO: remove this. (debug)
+        num_of_neigh = length(neighbors_of_x)
         
         X_active = X_gp[:, neighbors_of_x]
-        
-        # K_xx = getSparse_K(kernel, X_active, X_active)
-        K_xx = cK.mat[neighbors_of_x, neighbors_of_x]
+        empty_cK = alloc_cK(num_of_neigh) 
+
+        K_xx = active_cK = update_cK!(empty_cK, X_active, gp.kernel, get_value(gp.logNoise), gp.data, gp.covstrat)
+        # K_xx = cK.mat[neighbors_of_x, neighbors_of_x]
     
         K_fx = getSparse_K(kernel, x, X_active)
         K_xf = getSparse_K(kernel, X_active, x)
         K_f = GaussianProcesses.cov_ij(kernel, x, x)
     
-        mean_f = GaussianProcesses.mean(gp.mean, gp.x)
+        mean_f = mean(gp.mean, gp.x)
         
         mf = mean_f[idx]
         yf = gp.y[idx]
@@ -348,26 +326,193 @@ function getSparse_mll(gp)
         mx = mean_f[neighbors_of_x]
         yx = gp.y[neighbors_of_x]
     
-        μ_star = mf + dot(K_fx, inv(K_xx) * (yx - mx))
+        μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))
         # Σ_star = K_f - dot(K_fx, inv(K_xx) * K_xf)
         
-        Σbuffer, chol = make_posdef!(K_xx, cK.chol.factors[neighbors_of_x, neighbors_of_x])
-        new_cK = PDMat(Σbuffer, chol)
+        # Σbuffer, chol = make_posdef!(K_xx, cK.chol.factors[neighbors_of_x, neighbors_of_x])
+        # new_cK = PDMat(Σbuffer, chol)
 
         Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
-        Lck = GaussianProcesses.whiten!(new_cK, K_xf)
+        Lck = GaussianProcesses.whiten!(active_cK, K_xf)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
 
-
-        noise = 0
-        # noise = exp(2*-2)+eps()
-        Σ_star = abs.(Σ_star[1] + noise)
-        
+        Σ_star = abs.(Σ_star[1])
         σ = sqrt(Σ_star)
         
-        mll[idx] = -0.5*((yf - μ_star)/σ)^2 - 0.5*log(2*pi) - log(σ)
+        mll[idx] = -0.5*((yf - μ_star)/σ)^2 - 0.5*log2π - log(σ)
 
     end
 
-    return sum(mll)
+    return_sum ? sum(mll) : mll
+    # return sum(mll)
 end
+
+
+function getNearestNeighbors(Xs_gp::AbstractMatrix, X_gp, n; return_coordinates=false)
+    """ Finds the closest neighbors of points in Xs_gp with respect to points in X_gp. """
+
+    # Key: A single coordinate.
+    # Val: An array of n-nearest neighbors.
+    NN = Dict{AbstractArray, AbstractArray}()
+
+    println("## Getting all neighbors ##")
+    for xs in tqdm(unique(eachcol(Xs_gp)))
+        
+        temp = [euclidean_dist(xs, X_gp[:,jdx]) for jdx in 1:size(X_gp,2)]
+        p = sortperm(temp)
+
+        if return_coordinates
+            best_n = X_gp[:,p][:,(1:n)]
+            NN[xs] = best_n
+        else
+            NN[xs] = p[1:n]
+        end
+
+    end
+
+    return NN
+end
+
+function getNearestNeighbors(xs::AbstractVector, X_gp, n; exclude_itself = false, return_coordinates=false)
+    """ Finds the closest neighbors of point `xs` with respect to points in X_gp. """
+
+    println("## Getting all neighbors ##")
+        
+    temp = [euclidean_dist(xs, X_gp[:,jdx]) for jdx in 1:size(X_gp,2)]
+    p = sortperm(temp)
+
+    if return_coordinates
+        exclude_itself ? best_n = X_gp[:,p][:,(2:n+1)] : best_n = X_gp[:,p][:,(1:n)]
+        return best_n
+    else
+        exclude_itself ? best_n = p[2:n+1] : best_n = p[1:n]
+        return best_n
+    end
+
+end
+
+function getNearestNeighborsFaster(Xs_gp::AbstractMatrix, X_gp, n, grid_dist, altitudes; prequal_samples=Set(), return_as_list=false, return_coordinates=false)
+    """ Finds the closest neighbors of points in Xs_gp with respect to points in X_gp. """
+    """ Same as `getNearestNeighbors`, but does not search entire space. """
+    """ When `prequal_samples` is entered, the points in that set are considered too, in addition to X_gp """
+
+    X_gp_set = Set(eachcol(X_gp))
+    
+    if !return_coordinates
+        X_gp_idxs = Dict(item => idx for (idx,item) in enumerate(eachcol(X_gp)))
+    end
+    
+    # Key: A single coordinate.
+    # Val: An array of n-nearest neighbors.
+    NN = Dict{AbstractArray, AbstractArray}()
+    
+    println("## Getting all neighbors ##")
+    for xs0 in tqdm(eachcol(Xs_gp))
+        
+        xs = copy(xs0)    # copy is sufficient since elements of Float64 are immutable.
+        xs[1:2] = nearestRound(xs0[1:2], grid_dist)
+        samples = Set()
+        jdx = 1
+
+        let jdx=jdx
+        while length(samples) < n
+            gs = grid_dist * jdx
+
+            for h in altitudes
+                push!(samples, vcat(xs[1:2], h))
+
+                push!(samples, vcat(xs[1]-gs, xs[2], h))
+                push!(samples, vcat(xs[1]+gs, xs[2], h))
+                
+                push!(samples, vcat(xs[1], xs[2]-gs, h))
+                push!(samples, vcat(xs[1], xs[2]+gs, h))
+
+                push!(samples, vcat(xs[1]-gs, xs[2]-gs, h))
+                push!(samples, vcat(xs[1]+gs, xs[2]+gs, h))
+
+                push!(samples, vcat(xs[1]-gs, xs[2]+gs, h))
+                push!(samples, vcat(xs[1]+gs, xs[2]-gs, h))
+            end
+            jdx += 1
+            intersect!(samples, X_gp_set)
+        end
+        end
+
+        union!(samples, prequal_samples)
+
+        temp = [euclidean_dist(xs0,item) for item in samples]
+        p = sortperm(temp)
+        best_n = collect(Array{Float64,1}, samples)[p][1:n]
+
+        if return_coordinates
+            return_as_list ? NN[xs0] = best_n : NN[xs0] = transform4GPjl(best_n)
+        else
+            NN[xs0] = [X_gp_idxs[item] for item in best_n]
+        end
+
+    end
+
+    return NN
+end
+
+
+function getNearestNeighborsFaster(xs0::AbstractVector, X_gp, n, grid_dist, altitudes; prequal_samples=Set(), return_as_list=false, return_coordinates=false)
+    """ Finds the closest neighbors of point `xs` with respect to points in X_gp. """
+    """ Same as `getNearestNeighbors`, but does not search entire space. """
+
+    X_gp_set = Set(eachcol(X_gp))
+    
+    if !return_coordinates
+        X_gp_idxs = Dict(item => idx for (idx,item) in enumerate(eachcol(X_gp)))
+    end
+    
+    xs = copy(xs0)    # copy is sufficient since elements of Float64 are immutable.
+    xs[1:2] = nearestRound(xs[1:2], grid_dist)
+    samples = Set()
+    jdx = 1
+
+    let jdx=jdx
+    while length(samples) < n
+        gs = grid_dist * jdx
+
+        for h in altitudes
+            push!(samples, vcat(xs[1:2], h))
+
+            push!(samples, vcat(xs[1]-gs, xs[2], h))
+            push!(samples, vcat(xs[1]+gs, xs[2], h))
+            
+            push!(samples, vcat(xs[1], xs[2]-gs, h))
+            push!(samples, vcat(xs[1], xs[2]+gs, h))
+
+            push!(samples, vcat(xs[1]-gs, xs[2]-gs, h))
+            push!(samples, vcat(xs[1]+gs, xs[2]+gs, h))
+
+            push!(samples, vcat(xs[1]-gs, xs[2]+gs, h))
+            push!(samples, vcat(xs[1]+gs, xs[2]-gs, h))
+        end
+        jdx += 1
+        intersect!(samples, X_gp_set)
+    end
+    end
+
+    union!(samples, prequal_samples)
+    
+    temp = [euclidean_dist(xs0,item) for item in samples]
+    p = sortperm(temp)
+    best_n = collect(Array{Float64,1}, samples)[p][1:n]
+
+    if return_coordinates
+        result = return_as_list ? best_n : transform4GPjl(best_n)
+        return result
+    else
+        return sort([X_gp_idxs[item] for item in best_n])
+    end
+
+end
+
+function getNearestNeighborsFaster(X::AbstractArray, Y, n, grid_dist; prequal_samples=Set(), return_as_list=false, return_coordinates=false)
+    """ Use all altitudes inside `Y` if not specified as an input to `getNearestNeighborsFaster`. """
+    altitudes = unique(Y[end,:])
+    return getNearestNeighborsFaster(X, Y, n, grid_dist, altitudes; prequal_samples=prequal_samples, return_as_list=return_as_list, return_coordinates=return_coordinates)
+end
+
