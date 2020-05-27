@@ -3,6 +3,7 @@ using GaussianProcesses
 using LinearAlgebra: dot, logdet
 using PDMats: PDMat
 using Random
+using NearestNeighbors
 
 mean = GaussianProcesses.mean
 Mean = GaussianProcesses.Mean
@@ -166,7 +167,11 @@ function GaussianProcesses.predict_f(gp::GPE, xpred::AbstractVector, numNeighbor
     X_gp = gp.x
     kernel = gp.kernel
 
-    neighbors_of_xpred = getNearestNeighborsFaster(xpred, X_gp, numNeighbors, grid_dist, altitudes)
+    kdtree_X_gp = KDTree(X_gp)
+    neighbors_of_xpred, _ = knn(kdtree_X_gp, xpred, numNeighbors)
+    sort!(neighbors_of_xpred)
+
+    # neighbors_of_xpred = getNearestNeighborsFaster(xpred, X_gp, numNeighbors, grid_dist, altitudes)
     num_of_neigh = length(neighbors_of_xpred)
 
     X_active = X_gp[:, neighbors_of_xpred]
@@ -201,26 +206,34 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
         Xs_gp = transform4GPjl([Xs_gp])
     end
     
-    NN_xs = getNearestNeighborsFaster(Xs_gp, Xs_gp, numNeighbors, grid_dist_Xs; return_as_list = true, return_coordinates=true)
+    X_gp_set = Set(eachcol(X_gp))
+    Xs_samples_val = Float64[]
 
+    kdtree_X_gp = KDTree(X_gp)
+    kdtree_Xs_gp = KDTree(Xs_gp)
 
-    Y = Dict(item => gp.y[idx] for (idx,item) in enumerate(eachcol(X_gp)))
+    prequal_samples = Set{Int}()            # indices of previously sampled xs points. these should be unique w.r.t. points in X_gp.
+    prequal_samples_val = Float64[]
 
+    for (xs_idx, xs) in tqdm(enumerate(eachcol(Xs_gp)))
 
-    # SampledXs = Array{Float64}(undef, size(Xs_gp,2), 1)
-    prequal_samples = Set{Array{Float64,1}}()
-    prequal_samples_val = Set{Float64}()
+        neighbors_of_xs_in_Xs, dist2Xs = knn(kdtree_Xs_gp, xs, numNeighbors)
+        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # .*-1
 
-    for (i,xs) in enumerate(eachcol(Xs_gp))
+        neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
 
-        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set(NN_xs[xs])))
-        neighbors_of_xs_in_X = getNearestNeighborsFaster(xs, X_gp, numNeighbors, grid_dist; return_coordinates=true)
+        neighbors_of_xs_in_X, dist2X = knn(kdtree_X_gp, xs, numNeighbors)
+        neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
 
-        closest_neighbors_of_xs = getNearestNeighbors(xs, hcat(transform4GPjl(neighbors_of_xs_in_Xs), neighbors_of_xs_in_X), numNeighbors; exclude_itself=true, return_coordinates=true)
+        closest_neighbors_of_xs = hcat(Xs_gp[:,neighbors_of_xs_in_Xs], X_gp[:,neighbors_of_xs_in_X])
+        closest_neighbors_of_xs_values = vcat(neighbors_of_xs_in_Xs_values, neighbors_of_xs_in_X_values)
 
         num_of_neigh = size(closest_neighbors_of_xs, 2)
         empty_cK = alloc_cK(num_of_neigh)
-        X_active = closest_neighbors_of_xs[:, sortperm(closest_neighbors_of_xs[end, :])]   # sort by altitude to prevent non-PSD.       
+
+        sort_neighs = sortperm(closest_neighbors_of_xs[end, :])   # sort by altitude to prevent non-PSD.  
+        X_active = closest_neighbors_of_xs[:, sort_neighs]
+        
 
         K_xx = active_cK = update_cK!(empty_cK, X_active, kernel, get_value(gp.logNoise), gp.data, gp.covstrat)
         
@@ -232,21 +245,26 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
         mx = mean(gp.mean, closest_neighbors_of_xs)
 
 
-        # TODO: implement this part.
-        yx = gp.y[closest_neighbors_of_xs]
+        yx = closest_neighbors_of_xs_values[sort_neighs]     
         
         μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))        
         Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
         Lck = GaussianProcesses.whiten!(active_cK, K_xf)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
         
-        Σ_star = abs.(Σ_star[1])
+        Σ_star = abs.(Σ_star[1]) + noise_variance(gp)   # mimics predict_y.
 
-        push!(prequal_samples, copy(xs))    # copy is sufficient since elements of Float64 are immutable.
+        xs_dist = Normal(μ_star, Σ_star)
+        xs_sampled_val = rand(xs_dist)
+        push!(Xs_samples_val, xs_sampled_val)
 
-        # TODO: Make prediction for a single point, and add it to prequal_samples_val.
+        if !(xs in X_gp_set)
+            push!(prequal_samples, xs_idx)
+            push!(prequal_samples_val, xs_sampled_val)
+        end
+
     end
-
+    return Xs_samples_val
 end
 
 
