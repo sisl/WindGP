@@ -202,11 +202,11 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
     """ Randomly samples an entire farm, based on Sequential Gaussian Simulation """
     X_gp = gp.x
     
-    if size(Xs_gp) == (3,)      # if there is only one point, make AbstractArray 2 dimensional.
+    if size(Xs_gp) == (3,)                  # if there is only one point, make AbstractArray 2 dimensional.
         Xs_gp = transform4GPjl([Xs_gp])
     end
     
-    X_gp_set = Set(eachcol(X_gp))
+    X_gp_set = Set(eachcol(X_gp))           # lookup in Set is O(1), we will take advantage of this.
     Xs_samples_val = Float64[]
 
     kdtree_X_gp = KDTree(X_gp)
@@ -218,7 +218,7 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
     for (xs_idx, xs) in tqdm(enumerate(eachcol(Xs_gp)))
 
         neighbors_of_xs_in_Xs, dist2Xs = knn(kdtree_Xs_gp, xs, numNeighbors)
-        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # .*-1
+        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
 
         neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
 
@@ -248,7 +248,7 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
         yx = closest_neighbors_of_xs_values[sort_neighs]     
         
         μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))        
-        Σ_star = ones(1,1)*K_f  # convert from Float64 to Array
+        Σ_star = ones(1,1)*K_f                          # convert from Float64 to Array
         Lck = GaussianProcesses.whiten!(active_cK, K_xf)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
         
@@ -258,9 +258,11 @@ function Random.rand(gp::GPBase, kernel::CustomWindSparseKernel, Xs_gp::Abstract
         xs_sampled_val = rand(xs_dist)
         push!(Xs_samples_val, xs_sampled_val)
 
-        if !(xs in X_gp_set)
+        if !(xs in X_gp_set)                            # enforces uniqueness w.r.t. points in X_gp.
             push!(prequal_samples, xs_idx)
             push!(prequal_samples_val, xs_sampled_val)
+        else
+            push!(prequal_samples_val, NaN)
         end
 
     end
