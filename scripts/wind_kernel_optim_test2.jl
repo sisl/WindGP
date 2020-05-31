@@ -1,9 +1,9 @@
 using Optim
 using LinearAlgebra: isposdef
 using Distributions
-include("./dataparser_GWA.jl")
-include("./utils/wind_kernel.jl")
-include("./utils/misc.jl")
+include("../src/dataparser_GWA.jl")
+include("../src/utils/wind_kernel.jl")
+include("../src/utils/misc.jl")
 
 
 function objFunctionValue(X_gp, Y, d, opt_init)
