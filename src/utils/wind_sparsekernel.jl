@@ -153,7 +153,6 @@ end
 #     Lck = GaussianProcesses.whiten!(Kff, Kfx)
 #     GaussianProcesses.subtract_Lck!(Kxx, Lck)
 
-#     # println("I AM ENTERED.")  # for debug
 #     return mu, abs.(Kxx)
 # end
 
