@@ -4,8 +4,9 @@ using LinearAlgebra: dot, logdet
 using PDMats: PDMat
 using Random
 using NearestNeighbors
+using Statistics: mean
 
-mean = GaussianProcesses.mean
+# mean = GaussianProcesses.mean
 Mean = GaussianProcesses.Mean
 CovarianceStrategy = GaussianProcesses.CovarianceStrategy
 KernelData = GaussianProcesses.KernelData

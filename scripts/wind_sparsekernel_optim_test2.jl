@@ -50,9 +50,9 @@ altitudes = [10, 50, 100, 150, 200]
 
 Map = get_3D_data(farm; altitudes=altitudes)
 
-# nx = 91
-# ny = 57
-nx,ny = size(Map[altitudes[1]])
+nx = 50
+ny = 50
+# nx,ny = size(Map[altitudes[1]])
 
 X = []
 Y = Float64[]

@@ -1,6 +1,7 @@
 # using Revise
 # using BOMCTS
-using GaussianProcesses
+
+include("GPLA.jl")
 
 mean_0 = 0.0
 nobs = 2000
