@@ -352,6 +352,7 @@ function GaussianProcesses.set_params!(gp::GPLA, hyp::AbstractVector;
         GaussianProcesses.set_params!(gp.kernel, hyp[i:i+n_kern_params-1])
         i += n_kern_params
     end
+    update_mll!(gp)
 end
 
 function GaussianProcesses.get_optim_target(gp::GPLA; params_kwargs...)
@@ -416,4 +417,112 @@ function GaussianProcesses.get_optim_target(gp::GPLA; params_kwargs...)
 end
 
 function GaussianProcesses.init_precompute(gp::GPLA) nothing end
+
+function GaussianProcesses.fit!(gp::GPLA, x::AbstractArray, y::AbstractArray)
+    length(y) == size(x,2) || throw(ArgumentError("Input and output observations must have consistent dimensions."))
+    gp.x = x
+    gp.y = y
+    gp.data = GaussianProcesses.KernelData(gp.kernel, x, x)
+    initialize!(gp)
+end
+
+GaussianProcesses.noise_variance(gp::GPLA) = noise_variance(gp.logNoise)
+
+function getSparse_K(kernel, X1, X2)
+    """get a smaller cK matrix for a single x point"""
+    
+    X1_length = size(X1,2)
+    X2_length = size(X2,2)
+
+    cK = Array{Float64}(undef, X1_length, X2_length)
+
+    for i in 1:X1_length
+        x1 = X1[:,i]
+
+        for j in 1:X2_length
+            x2 = X2[:,j]
+            cK[i,j] = GaussianProcesses.cov(kernel, x1, x2)
+        end
+    end
+
+    return cK
+end
+
+
+function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
+    """ Randomly samples an entire farm, based on Sequential Gaussian Simulation """
+    X_gp = gp.x
+    kernel = gp.kernel
+    numNeighbors = gp.k
+    
+    if size(Xs_gp) == (3,)                  # if there is only one point, make AbstractArray 2 dimensional.
+        Xs_gp = transform4GPjl([Xs_gp])
+    end
+    
+    X_gp_set = Set(eachcol(X_gp))           # lookup in Set is O(1), we will take advantage of this.
+    Xs_samples_val = Float64[]
+
+    kdtree_X_gp = KDTree(X_gp)
+    kdtree_Xs_gp = KDTree(Xs_gp)
+
+    prequal_samples = Set{Int}()            # indices of previously sampled xs points. these should be unique w.r.t. points in X_gp.
+    prequal_samples_val = Float64[]
+
+    for (xs_idx, xs) in tqdm(enumerate(eachcol(Xs_gp)))
+
+        neighbors_of_xs_in_Xs, dist2Xs = knn(kdtree_Xs_gp, xs, numNeighbors)
+        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
+
+        neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
+
+        neighbors_of_xs_in_X, dist2X = knn(kdtree_X_gp, xs, numNeighbors)
+        neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
+
+        closest_neighbors_of_xs = hcat(Xs_gp[:,neighbors_of_xs_in_Xs], X_gp[:,neighbors_of_xs_in_X])
+        closest_neighbors_of_xs_values = vcat(neighbors_of_xs_in_Xs_values, neighbors_of_xs_in_X_values)
+
+        num_of_neigh = size(closest_neighbors_of_xs, 2)
+        empty_cK = GaussianProcesses.alloc_cK(num_of_neigh)
+
+        sort_neighs = sortperm(closest_neighbors_of_xs[end, :])   # sort by altitude to prevent non-PSD.  
+        X_active = closest_neighbors_of_xs[:, sort_neighs]
+        
+        
+        covstrat = GaussianProcesses.FullCovariance()
+        logNoise = GaussianProcesses.get_value(gp.logNoise)
+        data = GaussianProcesses.KernelData(kernel, X_active, X_active)
+        K_xx = active_cK = GaussianProcesses.update_cK!(empty_cK, X_active, kernel, logNoise, data, covstrat)
+        
+        K_fx = getSparse_K(kernel, xs, X_active)
+        K_xf = getSparse_K(kernel, X_active, xs)
+        K_f = GaussianProcesses.cov(kernel, xs, xs)
+        
+        mf = mean(gp.mean, xs)
+        mx = mean(gp.mean, closest_neighbors_of_xs)
+
+
+        yx = closest_neighbors_of_xs_values[sort_neighs]     
+        
+        μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))        
+        Σ_star = ones(1,1)*K_f                          # convert from Float64 to Array
+        Lck = GaussianProcesses.whiten!(active_cK, K_xf)
+        GaussianProcesses.subtract_Lck!(Σ_star, Lck)
+        
+        Σ_star = abs.(Σ_star[1]) + noise_variance(gp)   # mimics predict_y.
+        # Σ_star = abs.(Σ_star[1])
+
+        xs_dist = Normal(μ_star, Σ_star)
+        xs_sampled_val = rand(xs_dist)
+        push!(Xs_samples_val, xs_sampled_val)
+
+        if !(xs in X_gp_set)                            # enforces uniqueness w.r.t. points in X_gp.
+            push!(prequal_samples, xs_idx)
+            push!(prequal_samples_val, xs_sampled_val)
+        else
+            push!(prequal_samples_val, NaN)
+        end
+
+    end
+    return Xs_samples_val
+end
 

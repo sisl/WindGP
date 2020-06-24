@@ -109,26 +109,17 @@ end
 # LBFGS
 Theta_list = sample_from_mcmc_posteriors(posterior_samples, N_SAMPLES, SET_SIZE)
 
-function insert_Theta_to_GPLA!(new_gpla, Theta)
-    logNoise_param = Theta[1]
-    new_gpla.logNoise.value = logNoise_param
-    
-    mean_param = Theta[2]
-    new_gpla.mean.β = mean_param
-    
-    kernel_params = Theta[3:end]
-    new_gpla.kernel = SEIso(kernel_params...)
-end
-
 function optimize_Theta_list(Theta_list, gpla_WF)
     optim_results = []
 
     for Theta in tqdm(Theta_list)
         new_gpla = deepcopy(gpla_WF)
-        insert_Theta_to_GPLA!(new_gpla, Theta)
-        
+        GaussianProcesses.set_params!(new_gpla, Theta)
+        GaussianProcesses.fit!(new_gpla, X_obs, Y_obs)
+
         @time optimize!(new_gpla)
-        push!(optim_results, (new_gpla.mll, Theta))
+        optim_params = GaussianProcesses.get_params(new_gpla)
+        push!(optim_results, (new_gpla.mll, optim_params))
     end
 
     return optim_results

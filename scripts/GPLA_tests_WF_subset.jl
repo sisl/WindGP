@@ -4,7 +4,6 @@ using Random
 using GaussianProcesses
 import Statistics
 using Optim
-using ImageTransformations
 include("../src/dataparser_GWA.jl")
 include("../src/utils/misc.jl")
 include("../src/utils/GP_MCMC_with_tqdm.jl")
@@ -14,13 +13,19 @@ include("../src/GPLA.jl")
 # Parsing Farm Data
 farm = "AltamontCA"
 grid_dist = 220
-grid_dist_Xs = 220
+grid_dist_obs = 220
 altitudes = [10, 50, 100, 150, 200]
 nx = 90
 ny = nx
 
-# ImageTransformations
-IMG_SIZE = (div(nx, 2), div(ny, 2))
+# Training Set
+nx_start = div(nx, 3)
+nx_end = div(nx, 3) * 2
+ny_start = nx_start
+ny_end = nx_end
+
+# Observation Set
+grid_dist_obs = grid_dist * 2
 
 # GPLA
 NUM_NEIGHBORS = 10
@@ -39,26 +44,46 @@ SET_SIZE = 10
 # Load wind farm data
 Map = get_3D_data(farm; altitudes=altitudes)
 
-# Downsample farm data
-img = Map[150][1:nx,1:ny]
-img_ds = imresize(img, IMG_SIZE)
-
-img_locs = [[i,j] for i in 0.0:grid_dist:(nx-1)*grid_dist, j in 0.0:grid_dist:(ny-1)*grid_dist]
-img_locs_ds = imresize(img_locs, (45, 45))
-
-Y_gp = vec(img_ds)
-X = [[item...,150] for item in vec(img_locs_ds)]
-X_gp = transform4GPjl(X)
-
-
-# Points to approximate for in the end
-X_star = []
+# Create field set
+X_field0 = []
+Y_field0 = Float64[]
 
 for h in [150]
-    append!(X_star, [[i, j, Float64(h)] for j in 0.0:grid_dist_Xs:(ny-1)*grid_dist for i in 0.0:grid_dist_Xs:(nx-1)*grid_dist])
+    append!(X_field0, [[i, j, Float64(h)] for j in 0.0:grid_dist:(ny-1)*grid_dist for i in 0.0:grid_dist:(nx-1)*grid_dist])
+    append!(Y_field0, vec(Map[h][1:nx,1:ny]))
 end
 
-Xs_gp = transform4GPjl(X_star)
+X_field = transform4GPjl(X_field0)
+Y_field = Y_field0
+
+
+# Create training set
+X_train0 = []
+Y0 = Float64[]
+
+for h in [150]
+    append!(X_train0, [[i, j, Float64(h)] for j in Float64(ny_start-1)*grid_dist : grid_dist : Float64(ny_end-1)*grid_dist for i in Float64(nx_start-1)*grid_dist : grid_dist : Float64(nx_end-1)*grid_dist])
+    append!(Y0, vec(Map[h][nx_start : nx_end, ny_start : ny_end]))
+end
+
+X_train = transform4GPjl(X_train0)
+Y_train = Y0
+
+
+# Create observation set
+function get_Y_from_farm_location(loc, Map, grid_dist, nx, ny, h)
+    idx = loc[1:2]./ grid_dist .+ 1.0
+    return Map[h][Int.(idx)...]
+end
+
+X_obs0 = []
+
+for h in [150]
+    append!(X_obs0, [[i, j, Float64(h)] for j in 0.0:grid_dist_obs:(ny-1)*grid_dist for i in 0.0:grid_dist_obs:(nx-1)*grid_dist])
+end
+
+X_obs = transform4GPjl(X_obs0)
+Y_obs = map(lambda -> get_Y_from_farm_location(lambda, Map, grid_dist, nx, ny, 150), collect(eachcol(X_obs)))   # Retrieve the Y values on the Map for these coordinates.
 
 σy = 10.0
 
@@ -69,14 +94,14 @@ l_sq = exp(1)^0.5 * grid_dist
 kern_gp = SEIso(log(l_sq), log(σs_sq))
 
 # # exact GP
-# gp_full_WF = GPE(X_gp, Y_gp, MeanConst(mean(Y_gp)), kern_gp, log(σy))
+# gp_full_WF = GPE(X_train, Y_train, MeanConst(mean(Y_train)), kern_gp, log(σy))
 
 # # extract predictions
 # μ_exact_WF, Σ_exact_WF = predict_f(gp_full_WF, Xs_gp; full_cov=true)
 
 
 # GPLA
-@time gpla_WF = GPLA(X_gp, Y_gp, 10, 0, 0, MeanConst(mean(Y_gp)), kern_gp, log(σy))
+@time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
 
 # MCMC (Note: takes about 4-5 mins for N_ITER=100, HMC_ϵ=0.025 with 400 pts)
 @time posterior_samples = mcmc(gpla_WF, nIter=N_ITER, burn=BURN, Lmin=20, Lmax=30, ε=HMC_ϵ)  
@@ -96,8 +121,6 @@ end
 
 
 # LBFGS
-Theta_list = sample_from_mcmc_posteriors(posterior_samples, N_SAMPLES, SET_SIZE)
-
 function optimize_Theta_list(Theta_list, gpla_WF)
     optim_results = []
 
@@ -116,34 +139,33 @@ end
 
 
 # Retrieve the Theta value with the lowest overall mll
+Theta_list = sample_from_mcmc_posteriors(posterior_samples, N_SAMPLES, SET_SIZE)
 optim_Theta_vals = optimize_Theta_list(Theta_list, gpla_WF)
 Theta_star = sort(optim_Theta_vals)[end][end]
-insert_Theta_to_GPLA!(gpla_WF, Theta_star)
 
-# gpla predictions
-μ_gpla_WF, Σ_gpla_WF = predict_f(gpla_WF, Xs_gp)
+GaussianProcesses.set_params!(gpla_WF, Theta_star)
+GaussianProcesses.fit!(gpla_WF, X_obs, Y_obs)
 
+# # gpla predictions
+# μ_gpla_WF, Σ_gpla_WF = predict_f(gpla_WF, X_field)
+
+# Sample from the posterior
+Y_sample = rand(gpla_WF, X_field)
 
 
 
 ### PLOT STUFF ###
 using Plots
 
-X0 = []
-Y0 = Float64[]
 
-for h in [150]
-    append!(X0, [[i, j, Float64(h)] for j in 0.0:grid_dist:(ny-1)*grid_dist for i in 0.0:grid_dist:(nx-1)*grid_dist])
-    append!(Y0, vec(Map[h][1:nx,1:ny]))
-end
 
 p1 = heatmap(reshape(Y0, (nx,ny)))
 Plots.savefig(p1, "p1")
 
-nx_star = length(0.0:grid_dist_Xs:(nx-1)*grid_dist)
-ny_star = length(0.0:grid_dist_Xs:(ny-1)*grid_dist)
+nx_star = length(0.0:grid_dist_obs:(nx-1)*grid_dist)
+ny_star = length(0.0:grid_dist_obs:(ny-1)*grid_dist)
 
 # predicted values
 # p2 = heatmap(reshape(μ_exact_WF, (nx_star,ny_star)))
-p3 = heatmap(reshape(μ_gpla_WF, (nx_star,ny_star)))
+p3 = heatmap(reshape(μ_gpla_WF, (nx, ny)))
 Plots.savefig(p3, "p3")

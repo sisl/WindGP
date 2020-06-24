@@ -92,12 +92,12 @@ zₒ = 0.05
 
 # Optim.jl PARAMS
 opt_method = NelderMead()
-opt_settings = Optim.Options(show_trace=true, iterations = 25)
+opt_settings = Optim.Options(show_trace=true, iterations = 1)
 
 opt_init = [l_sq, σs_sq, l_lin, σs_lin, zₒ]
 opt_init0 = deepcopy(opt_init)
 
-numNeighbors = 5
+numNeighbors = 10
 NN = getNearestNeighborsFaster(X_gp, X_gp, numNeighbors, grid_dist, altitudes)
 
 result = Optim.optimize(lambda -> objFunctionValue(X_gp, Y, d, NN, lambda), opt_init, opt_method, opt_settings)
