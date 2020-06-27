@@ -108,10 +108,15 @@ zₒ = 0.05
 
 # kern_gp = SEIso(log(l_sq), log(σs_sq))
 # @time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
+# Theta_star = [-1.6885736184181186, 6.995882114315501 , 6.958324180613349 , 0.6929262639505916]
+# GaussianProcesses.set_params!(gpla_WF, Theta_star)
+# GaussianProcesses.fit!(gpla_WF, X_obs, Y_obs)
 
-kern_gp_wll = WLL_SEIso(log(l_sq), log(σs_sq), log(l_lin), log(σs_lin), d, zₒ)
+kern_gp_wll = WLK_SEIso(log(l_sq), log(σs_sq), log(l_lin), log(σs_lin), d, zₒ)
 @time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp_wll, log(σy))
-
+Theta_star_wll = [-1.6885736184181186, 6.995882114315501 , 6.958324180613349 , 0.6929262639505916, 4.605170185988092, 0.0, 0.0, 0.05]
+GaussianProcesses.set_params!(gpla_WF, Theta_star_wll)
+GaussianProcesses.fit!(gpla_WF, X_obs, Y_obs)
 
 # # exact GP
 # gp_full_WF = GPE(X_train, Y_train, MeanConst(mean(Y_train)), kern_gp, log(σy))

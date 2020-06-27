@@ -67,12 +67,42 @@ function GaussianProcesses.cov!(cK::AbstractMatrix, k::WLK_SEIso, X1::AbstractMa
     return cK
 end
 
-function GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int)
+# function GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int)
+
+#     ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
+
+#     x_star = @view(X1[:,i])
+#     x = @view(X2[:,j])
+    
+#     z_star = x_star[3]
+#     z = x[3]
+
+#     k_val = 1        
+    
+#     # SquaredExponentialKernel
+#     r = x[1:2] - x_star[1:2]
+#     r_sq = dot_product(r,r)
+#     k_val *= σ2_sq * exp(-r_sq/(2*ℓ2_sq))
+
+#     # LinearExponentialKernel
+#     r = abs(z - z_star)
+#     k_val *= σ2_lin * exp(-r/(2*l_lin))
+
+#     # WindLogLawKernel
+#     ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
+#     # k_val *= (ratio - m[z_star]/uₓ) / (1 - m[z]/uₓ)
+#     k_val *= ratio
+
+#     return k_val
+# end
+
+
+function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVector, data::GaussianProcesses.KernelData=GaussianProcesses.EmptyData())
 
     ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
 
-    x_star = @view(X1[:,i])
-    x = @view(X2[:,j])
+    x_star = x1
+    x = x2
     
     z_star = x_star[3]
     z = x[3]
@@ -96,34 +126,7 @@ function GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::Abstract
     return k_val
 end
 
-function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVector, data::GaussianProcesses.KernelData=GaussianProcesses.EmptyData())
-
-    ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
-
-    x_star = x1
-    x = x2
-    
-    z_star = x_star[3]
-    z = x[3]
-
-    k_val = 1        
-    
-    # SquaredExponentialKernel
-    r = x[1:2] - x_star[1:2]
-    r_sq = dot_product(r,r)
-    k_val *= σ2_sq * exp(-r_sq/(2*l_sq))
-
-    # LinearExponentialKernel
-    r = abs(z - z_star)
-    k_val *= σ2_lin * exp(-r/(2*l_lin))
-
-    # WindLogLawKernel
-    ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
-    # k_val *= (ratio - m[z_star]/uₓ) / (1 - m[z]/uₓ)
-    k_val *= ratio
-
-    return k_val
-end
+GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int) = GaussianProcesses.cov(k, @view(X1[:,i]), @view(X2[:,j]))
 
 @inline GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data::GaussianProcesses.IsotropicData, i::Int, j::Int, dim::Int) = GaussianProcesses.cov_ij(k, X1, X2, i, j, dim)
 @inline GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data::GaussianProcesses.KernelData, i::Int, j::Int, dim::Int) = GaussianProcesses.cov_ij(k, X1, X2, i, j, dim)
