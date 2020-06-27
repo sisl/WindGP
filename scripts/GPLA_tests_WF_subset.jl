@@ -9,6 +9,8 @@ include("../src/utils/misc.jl")
 include("../src/utils/GP_MCMC_with_tqdm.jl")
 include("../src/GPLA.jl")
 
+include("../src/utils/WLK_kernel.jl")
+
 #=========== PARAMS ==========#
 # Parsing Farm Data
 farm = "AltamontCA"
@@ -91,7 +93,25 @@ Y_obs = map(lambda -> get_Y_from_farm_location(lambda, Map, grid_dist, nx, ny, 1
 l_sq = exp(1)^0.5 * grid_dist
 σs_sq = exp(2)
 
-kern_gp = SEIso(log(l_sq), log(σs_sq))
+# LinearExponentialKernel PARAMS
+l_lin = 10000.0
+σs_lin = 1.0
+
+# WindLogLawKernel PARAMS
+d = 0.0
+zₒ = 0.05
+
+
+
+
+# GPLA
+
+# kern_gp = SEIso(log(l_sq), log(σs_sq))
+# @time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
+
+kern_gp_wll = WLL_SEIso(log(l_sq), log(σs_sq), log(l_lin), log(σs_lin), d, zₒ)
+@time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp_wll, log(σy))
+
 
 # # exact GP
 # gp_full_WF = GPE(X_train, Y_train, MeanConst(mean(Y_train)), kern_gp, log(σy))
@@ -99,9 +119,6 @@ kern_gp = SEIso(log(l_sq), log(σs_sq))
 # # extract predictions
 # μ_exact_WF, Σ_exact_WF = predict_f(gp_full_WF, Xs_gp; full_cov=true)
 
-
-# GPLA
-@time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
 
 # MCMC (Note: takes about 4-5 mins for N_ITER=100, HMC_ϵ=0.025 with 400 pts)
 @time posterior_samples = mcmc(gpla_WF, nIter=N_ITER, burn=BURN, Lmin=20, Lmax=30, ε=HMC_ϵ)  

@@ -102,23 +102,6 @@ function predict_local(x, x_obs, y_obs, mean, kernel, logNoise)
     return μ, σ²
 end
 
-# function predict_local(x, x_obs, mean, kernel, logNoise)
-#     k = size(x_obs, 2)
-#     mx = GaussianProcesses.mean(mean, x_obs)
-#     mf = GaussianProcesses.mean(mean, x)[1]
-#     Kxf = GaussianProcesses.cov(kernel, x, x_obs) #size(size(x,2) x nx)
-#     Kff = GaussianProcesses.cov(kernel, x, x) .+ exp(2*logNoise.value) .+ eps()
-#
-#     # y_obs = reshape(y_obs - mx, size(y_obs, 1), 1)
-#     data = GaussianProcesses.KernelData(kernel, x_obs, x_obs)
-#     Σ = GaussianProcesses.cov(kernel, x_obs, x_obs, data) + Matrix(I, k, k).*(exp(2*logNoise.value)+eps())
-#     Kxx = PDMat(GaussianProcesses.make_posdef!(Σ)...)
-#     # μ = mf + GaussianProcesses.dot(Kxf, Kxx \ y_obs)
-#     Σ = Kff - Kxf*(Kxx \ transpose(Kxf))
-#     σ² = max(Σ[1], 0.0)
-#     return mx, mf, Kxx, Kxf, σ²
-# end
-
 function mll_local(idx, gp, mx, neighbors)
     if idx in neighbors
         neighbors = neighbors[neighbors .!= idx]
@@ -452,9 +435,11 @@ end
 function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
     """ Randomly samples an entire farm, based on Sequential Gaussian Simulation """
     X_gp = gp.x
-    kernel = gp.kernel
     numNeighbors = gp.k
-    
+    kernel = gp.kernel
+    logNoise = GaussianProcesses.get_value(gp.logNoise)
+    covstrat = GaussianProcesses.FullCovariance()
+
     if size(Xs_gp) == (3,)                  # if there is only one point, make AbstractArray 2 dimensional.
         Xs_gp = transform4GPjl([Xs_gp])
     end
@@ -470,12 +455,12 @@ function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
 
     for (xs_idx, xs) in tqdm(enumerate(eachcol(Xs_gp)))
 
-        neighbors_of_xs_in_Xs, dist2Xs = knn(kdtree_Xs_gp, xs, numNeighbors)
+        neighbors_of_xs_in_Xs, _ = knn(kdtree_Xs_gp, xs, numNeighbors)
         neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
 
         neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
 
-        neighbors_of_xs_in_X, dist2X = knn(kdtree_X_gp, xs, numNeighbors)
+        neighbors_of_xs_in_X, _ = knn(kdtree_X_gp, xs, numNeighbors)
         neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
 
         closest_neighbors_of_xs = hcat(Xs_gp[:,neighbors_of_xs_in_Xs], X_gp[:,neighbors_of_xs_in_X])
@@ -488,8 +473,6 @@ function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
         X_active = closest_neighbors_of_xs[:, sort_neighs]
         
         
-        covstrat = GaussianProcesses.FullCovariance()
-        logNoise = GaussianProcesses.get_value(gp.logNoise)
         data = GaussianProcesses.KernelData(kernel, X_active, X_active)
         K_xx = active_cK = GaussianProcesses.update_cK!(empty_cK, X_active, kernel, logNoise, data, covstrat)
         
