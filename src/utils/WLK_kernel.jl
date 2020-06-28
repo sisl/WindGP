@@ -21,10 +21,6 @@ mutable struct WLK_SEIso{T<:Real} <: GaussianProcesses.Isotropic{GaussianProcess
     priors::Array
 end
 
-cov(se::WLK_SEIso, r::Number) = error("This call should not have been made.")
-
-
-
 
 """
 GaussianProcesses.cov(k::Kernel, X1::AbstractMatrix, X2::AbstractMatrix)
@@ -67,36 +63,6 @@ function GaussianProcesses.cov!(cK::AbstractMatrix, k::WLK_SEIso, X1::AbstractMa
     return cK
 end
 
-# function GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int)
-
-#     ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
-
-#     x_star = @view(X1[:,i])
-#     x = @view(X2[:,j])
-    
-#     z_star = x_star[3]
-#     z = x[3]
-
-#     k_val = 1        
-    
-#     # SquaredExponentialKernel
-#     r = x[1:2] - x_star[1:2]
-#     r_sq = dot_product(r,r)
-#     k_val *= σ2_sq * exp(-r_sq/(2*ℓ2_sq))
-
-#     # LinearExponentialKernel
-#     r = abs(z - z_star)
-#     k_val *= σ2_lin * exp(-r/(2*l_lin))
-
-#     # WindLogLawKernel
-#     ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
-#     # k_val *= (ratio - m[z_star]/uₓ) / (1 - m[z]/uₓ)
-#     k_val *= ratio
-
-#     return k_val
-# end
-
-
 function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVector, data::GaussianProcesses.KernelData=GaussianProcesses.EmptyData())
 
     ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
@@ -126,8 +92,7 @@ function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVec
     return k_val
 end
 
-GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int) = GaussianProcesses.cov(k, @view(X1[:,i]), @view(X2[:,j]))
-
+@inline GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, i::Int, j::Int, dim::Int) = GaussianProcesses.cov(k, @view(X1[:,i]), @view(X2[:,j]))
 @inline GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data::GaussianProcesses.IsotropicData, i::Int, j::Int, dim::Int) = GaussianProcesses.cov_ij(k, X1, X2, i, j, dim)
 @inline GaussianProcesses.cov_ij(k::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data::GaussianProcesses.KernelData, i::Int, j::Int, dim::Int) = GaussianProcesses.cov_ij(k, X1, X2, i, j, dim)
 
@@ -143,52 +108,86 @@ end
 
 GaussianProcesses.get_params(se::WLK_SEIso{T}) where T = T[log(se.ℓ2_sq) / 2, log(se.σ2_sq) / 2, log(se.ℓ_lin) / 2, log(se.σ2_lin) / 2, se.d, se.zₒ]
 
-GaussianProcesses.get_param_names(se::WLK_SEIso) = [:ℓ2_sq, :σ2_sq, :ℓ_lin, :σ2_lin, :d, :zₒ]
+GaussianProcesses.get_param_names(se::WLK_SEIso) = [:ll_sq, :lσ_sq, :ll_lin, :lσ_lin, :d, :zₒ]
 
 
 
 
 
+# Derivative functions for first-order optimization algorithms.
 
-# TODO: Write the derivative functions.
-
-
-@inline function dKij_dθp(kern::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data, i::Int, j::Int, p::Int, dim::Int)
-    xy_dist = euclidean_dist(X1[1:2,i], X2[1:2,j])  # Distance in coordinates 
-    z_dist = abs(X1[3,i] - X2[3,j])                 # Distance in altitude
-    return dk_dθp(kern, xy_dist, z_dist, p)
+@inline function dk_dll_sq(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector)
+    r = x1[1:2] - x2[1:2]
+    r_sq = dot_product(r,r)
+    
+    drv = r_sq / se.ℓ2_sq
+    return drv * GaussianProcesses.cov(se, x1, x2)
 end
 
-@inline dk_dθp(se::WLK_SEIso, r::Real, p::Int) = error("This call should not have been made.")
+@inline dk_dlσ_sq(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector) = 2 * GaussianProcesses.cov(se, x1, x2)
 
+@inline function dk_dll_lin(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector)
+    r = abs(x1[3] - x2[3])
+    
+    drv = r/se.ℓ_lin
+    return drv * GaussianProcesses.cov(se, x1, x2)
+end
+
+@inline dk_dlσ_lin(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector) = 2 * GaussianProcesses.cov(se, x1, x2)
+
+@inline function dk_dd(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector)
+    z1, z2 = x1[3], x2[3]
+
+    drv1 = log((z2 - se.d)/se.zₒ) * (z2 - se.d)
+    drv2 = log((z1 - se.d)/se.zₒ) * (z1 - se.d)
+    
+    cov_val = GaussianProcesses.cov(se, x1, x2)
+
+    return cov_val / drv1 - cov_val / drv2
+end
+
+@inline function dk_dzₒ(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector)
+    z1, z2 = x1[3], x2[3]
+
+    drv1 = log((z2 - se.d)/se.zₒ) * se.zₒ
+    drv2 = log((z1 - se.d)/se.zₒ) * se.zₒ
+    
+    cov_val = GaussianProcesses.cov(se, x1, x2)
+
+    return cov_val / drv1 - cov_val / drv2
+end
+
+@inline function GaussianProcesses.dKij_dθp(se::WLK_SEIso, X1::AbstractMatrix, X2::AbstractMatrix, data::GaussianProcesses.IsotropicData, i::Int, j::Int, p::Int, dim::Int)
+    x1, x2 = @view(X1[:,i]), @view(X2[:,j])
+    return dk_dθp(se, x1, x2, p)
+end
 
 # Retrieves derivative of cov function w.r.t. param index `p`.
-@inline function dk_dθp(se::WLK_SEIso, xy_dist::Number, z_dist::Number, p::Int)
-    if p==1         # ℓ2_sq
-        return dk_dll(se, r)
+@inline function dk_dθp(se::WLK_SEIso, x1::AbstractVector, x2::AbstractVector, p::Int)
 
-    elseif p==2     # σ2_sq
-        return dk_dlσ(se, r)
+    if p==1
+        return dk_dll_sq(se, x1, x2)
+
+    elseif p==2
+        return dk_dlσ_sq(se, x1, x2)
     
-    elseif p==3     # ℓ_lin
-        return dk_dlσ(se, r)
+    elseif p==3
+        return dk_dll_lin(se, x1, x2)
 
-    elseif p==4     # σ2_lin
-        return dk_dlσ(se, r)
+    elseif p==4
+        return dk_dlσ_lin(se, x1, x2)
     
-    elseif p==5     # d
-        return dk_dlσ(se, r)
+    elseif p==5
+        return dk_dd(se, x1, x2)
 
-    elseif p==6     # zₒ
-        return dk_dlσ(se, r)
-
+    elseif p==6
+        return dk_dzₒ(se, x1, x2)
 
     else
         return NaN
     end
 end
 
+dk_dθp(se::WLK_SEIso, r::Real, p::Int) = error("This call should not have been made.")
 
-
-
-@inline dk_dll(se::WLK_SEIso, r::Real) = r/se.ℓ2*cov(se,r)
+GaussianProcesses.cov(se::WLK_SEIso, r::Number) = error("This call should not have been made.")
