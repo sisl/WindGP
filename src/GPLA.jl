@@ -87,6 +87,11 @@ end
 
 function predict_local(x, x_obs, y_obs, mean, kernel, logNoise)
     k = size(x_obs, 2)
+
+    sort_obs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.  
+    x_obs = x_obs[:, sort_obs]
+    y_obs = y_obs[sort_obs]
+
     mx = GaussianProcesses.mean(mean, x_obs)
     mf = GaussianProcesses.mean(mean, x)[1]
     Kxf = GaussianProcesses.cov(kernel, x, x_obs) #size(size(x,2) x nx)

@@ -180,7 +180,6 @@ Y_sample = rand(gpla_WF, X_field)
 using Plots
 
 
-
 p1 = heatmap(reshape(Y0, (nx,ny)))
 Plots.savefig(p1, "p1")
 
