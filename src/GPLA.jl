@@ -110,15 +110,21 @@ function mll_local(idx, gp, mx, neighbors)
     end
     k = length(neighbors)
 
+
     x = gp.x[:,idx:idx]
     x_obs = gp.x[:, neighbors]
+    
+    sort_neighs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.  
+    neighbors = neighbors[sort_neighs]
+    x_obs = gp.x[:, neighbors]
+    
     y_obs = gp.y[neighbors] - mx[neighbors]
     y_obs = reshape(y_obs, size(y_obs, 1), 1)
-
+    
     mf = mx[idx]
     Kxf = GaussianProcesses.cov(gp.kernel, x, x_obs) #size(size(x,2) x nx)
     Kff = GaussianProcesses.cov(gp.kernel, x, x) .+ exp(2*gp.logNoise.value) .+ eps()
-
+    
     data = GaussianProcesses.KernelData(gp.kernel, x_obs, x_obs)
     Σ = GaussianProcesses.cov(gp.kernel, x_obs, x_obs, data) + Matrix(I, gp.k, gp.k).*(exp(2*gp.logNoise.value)+eps())
     Kxx = PDMat(GaussianProcesses.make_posdef!(Σ)...)

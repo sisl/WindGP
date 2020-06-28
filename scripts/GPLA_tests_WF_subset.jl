@@ -16,13 +16,13 @@ include("../src/utils/WLK_kernel.jl")
 farm = "AltamontCA"
 grid_dist = 220
 grid_dist_obs = 220
-altitudes = [10, 50, 100, 150, 200]
+altitudes = [100, 150, 200]
 nx = 90
 ny = nx
 
 # Training Set
-nx_start = div(nx, 3)
-nx_end = div(nx, 3) * 2
+nx_start = div(nx, 5) * 2
+nx_end = div(nx, 5) * 3
 ny_start = nx_start
 ny_end = nx_end
 
@@ -30,10 +30,10 @@ ny_end = nx_end
 grid_dist_obs = grid_dist * 2
 
 # GPLA
-NUM_NEIGHBORS = 10
+NUM_NEIGHBORS = 5
 
 # MCMC
-N_ITER = 100
+N_ITER = 20
 BURN = div(N_ITER, 2)
 HMC_ϵ = 0.001
 
@@ -63,7 +63,7 @@ Y_field = Y_field0
 X_train0 = []
 Y0 = Float64[]
 
-for h in [150]
+for h in [100, 200]
     append!(X_train0, [[i, j, Float64(h)] for j in Float64(ny_start-1)*grid_dist : grid_dist : Float64(ny_end-1)*grid_dist for i in Float64(nx_start-1)*grid_dist : grid_dist : Float64(nx_end-1)*grid_dist])
     append!(Y0, vec(Map[h][nx_start : nx_end, ny_start : ny_end]))
 end
@@ -80,7 +80,7 @@ end
 
 X_obs0 = []
 
-for h in [150]
+for h in [100, 200]
     append!(X_obs0, [[i, j, Float64(h)] for j in 0.0:grid_dist_obs:(ny-1)*grid_dist for i in 0.0:grid_dist_obs:(nx-1)*grid_dist])
 end
 
@@ -107,13 +107,13 @@ zₒ = 0.05
 # GPLA
 
 # kern_gp = SEIso(log(l_sq), log(σs_sq))
-# @time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
+# @time gpla_WF = GPLA(X_train, Y_train, NUM_NEIGHBORS, 0, 0, MeanConst(mean(Y_train)), kern_gp, log(σy))
 # Theta_star = [-1.6885736184181186, 6.995882114315501 , 6.958324180613349 , 0.6929262639505916]
 # GaussianProcesses.set_params!(gpla_WF, Theta_star)
 # GaussianProcesses.fit!(gpla_WF, X_obs, Y_obs)
 
 kern_gp_wll = WLK_SEIso(log(l_sq), log(σs_sq), log(l_lin), log(σs_lin), d, zₒ)
-@time gpla_WF = GPLA(X_train, Y_train, 10, 0, 0, MeanConst(mean(Y_train)), kern_gp_wll, log(σy))
+@time gpla_WF = GPLA(X_train, Y_train, NUM_NEIGHBORS, 0, 0, MeanConst(mean(Y_train)), kern_gp_wll, log(σy))
 Theta_star_wll = [-1.6885736184181186, 6.995882114315501 , 6.958324180613349 , 0.6929262639505916, 4.605170185988092, 0.0, 0.0, 0.05]
 GaussianProcesses.set_params!(gpla_WF, Theta_star_wll)
 GaussianProcesses.fit!(gpla_WF, X_obs, Y_obs)
@@ -190,4 +190,5 @@ ny_star = length(0.0:grid_dist_obs:(ny-1)*grid_dist)
 # predicted values
 # p2 = heatmap(reshape(μ_exact_WF, (nx_star,ny_star)))
 p3 = heatmap(reshape(μ_gpla_WF, (nx, ny)))
-Plots.savefig(p3, "p3")
+p4 = heatmap(reshape(Y_sample, (nx, ny)))
+Plots.savefig(p4, "p4")
