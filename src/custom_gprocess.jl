@@ -49,7 +49,8 @@ end
 
 function getKernelValue(x_star, x, kernel::LinearExponentialKernel)    
     l, σs  = kernel.l, kernel.σs
-    r = abs(x - x_star)
+    r_diff = x - x_star
+    r = sqrt(dot_product(r_diff,r_diff))
     return σs^2 * exp(-r/(2*l))
 end
 
@@ -89,12 +90,13 @@ end
 
 
 struct CompositeWindKernel <: Kernel
-    Kxy::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (x,y)
-    Kz ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (z)
+    Kxy  ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (x,y)
+    Kz   ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (z)
+    Kxyz ::AbstractArray{T} where T <: Kernel       # Array of Kernels used for fitting (x,y,z)
 end
 
 function getKernelValue(x_star, x, kernel::CompositeWindKernel)    
-    Kxy, Kz = kernel.Kxy, kernel.Kz
+    Kxy, Kz, Kxyz = kernel.Kxy, kernel.Kz, kernel.Kxyz
     K_val = 1
 
     for kernel in Kxy
@@ -103,6 +105,10 @@ function getKernelValue(x_star, x, kernel::CompositeWindKernel)
 
     for kernel in Kz
         K_val *= getKernelValue(x_star[3], x[3], kernel)
+    end
+
+    for kernel in Kxyz
+        K_val *= getKernelValue(x_star, x, kernel)
     end
 
     return K_val
@@ -153,7 +159,7 @@ function getKernelMatrix(X_star, X, kernel::CustomTripleKernel)
 
     K_matrix = Array{Float64,2}(undef, length(X_star), length(X))
 
-    for i in tqdm(1:length(X_star))
+    for i in (1:length(X_star))   ## --> add tqdm here, if you please.
         # println("$i of $(length(X_star))")
         for (j,x) in enumerate(X)
             k_val = 1
