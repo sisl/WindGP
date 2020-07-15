@@ -103,7 +103,7 @@ function predict_local(x, x_obs, y_obs, mean, kernel, logNoise)
     Kxx = PDMat(GaussianProcesses.make_posdef!(Σ)...)
     μ = mf + GaussianProcesses.dot(Kxf, Kxx \ y_obs)
     Σ = Kff - Kxf*(Kxx \ transpose(Kxf))
-    σ² = max(Σ[1], 0.0)
+    σ² = abs(Σ[1])
     return μ, σ²
 end
 
@@ -135,7 +135,7 @@ function mll_local(idx, gp, mx, neighbors)
     Kxx = PDMat(GaussianProcesses.make_posdef!(Σ)...)
     μ = mf + GaussianProcesses.dot(Kxf, Kxx \ y_obs)
     Σ = Kff - Kxf*(Kxx \ transpose(Kxf))
-    σ² = max(Σ[1], 0.0)
+    σ² = abs(Σ[1])
     σ = sqrt(σ²)
     log_p = -0.5*((gp.y[idx] - μ)/σ)^2 - 0.5*log(2*pi) - log(σ)
     param_tuple = (μ = μ, σ²  = σ², Kxx = Kxx, Kxf = Kxf, Kff = Kff, mf = mf, y = y_obs, neighbors = neighbors)
@@ -309,13 +309,14 @@ function GaussianProcesses.optimize!(gp::GPLA; method = GaussianProcesses.LBFGS(
     params_kwargs = GaussianProcesses.get_params_kwargs(gp; domean=domean, kern=kern, noise=noise, lik=lik)
     func = GaussianProcesses.get_optim_target(gp; params_kwargs...)
     init = GaussianProcesses.get_params(gp; params_kwargs...)  # Initial hyperparameter values
+    opt_settings = Optim.Options(show_trace=true)
     try
         if meanbounds == kernbounds == noisebounds == likbounds == nothing
-            results = Optim.optimize(func, init; method=method, kwargs...)
+            results = Optim.optimize(func, init, method, opt_settings, kwargs...)
         else
             lb, ub = GaussianProcesses.bounds(gp, noisebounds, meanbounds, kernbounds, likbounds;
                             domean = domean, kern = kern, noise = noise, lik = lik)
-            results = GaussianProcesses.optimize(func.f, func.df, lb, ub, init, Fminbox(method))
+            results = GaussianProcesses.optimize(func.f, func.df, lb, ub, init, Fminbox(method), opt_settings)
         end
         GaussianProcesses.set_params!(gp, Optim.minimizer(results); params_kwargs...)
         return results
@@ -371,7 +372,8 @@ function GaussianProcesses.get_optim_target(gp::GPLA; params_kwargs...)
                 println(err)
                 return Inf
             else
-                throw(err)
+                # throw(err)
+                return Inf
             end
         end
     end
@@ -397,7 +399,8 @@ function GaussianProcesses.get_optim_target(gp::GPLA; params_kwargs...)
                 println(err)
                 return Inf
             else
-                throw(err)
+                # throw(err)
+                return Inf
             end
         end
     end
@@ -443,7 +446,7 @@ function getSparse_K(kernel, X1, X2)
 end
 
 
-function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
+function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
     """ Randomly samples an entire farm, based on Sequential Gaussian Simulation """
     X_gp = gp.x
     numNeighbors = gp.k
@@ -464,12 +467,19 @@ function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
     prequal_samples = Set{Int}()            # indices of previously sampled xs points. these should be unique w.r.t. points in X_gp.
     prequal_samples_val = Float64[]
 
-    for (xs_idx, xs) in tqdm(enumerate(eachcol(Xs_gp)))
+    for (xs_idx, xs) in enumerate(eachcol(Xs_gp))
 
-        neighbors_of_xs_in_Xs, _ = knn(kdtree_Xs_gp, xs, numNeighbors)
-        neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
+        neighbors_of_xs_in_Xs = []
+        neighbors_of_xs_in_Xs_values = []
+        
+        try
+            neighbors_of_xs_in_Xs, _ = knn(kdtree_Xs_gp, xs, numNeighbors)
+            neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
 
-        neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
+            neighbors_of_xs_in_Xs_values = prequal_samples_val[neighbors_of_xs_in_Xs]
+        catch
+            nothing
+        end
 
         neighbors_of_xs_in_X, _ = knn(kdtree_X_gp, xs, numNeighbors)
         neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
@@ -503,9 +513,12 @@ function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
         
         Σ_star = abs.(Σ_star[1]) + noise_variance(gp)   # mimics predict_y.
-        # Σ_star = abs.(Σ_star[1])
+        σ_star = sqrt(Σ_star)
+        
+        # Prevent sampling negative wind value
+        σ_star > μ_star ? σ_star = μ_star : nothing
 
-        xs_dist = Normal(μ_star, Σ_star)
+        xs_dist = Normal(μ_star, σ_star)
         xs_sampled_val = rand(xs_dist)
         push!(Xs_samples_val, xs_sampled_val)
 
@@ -520,3 +533,5 @@ function Random.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
     return Xs_samples_val
 end
 
+
+GaussianProcesses.rand(gp::GPLA) = GaussianProcesses.rand(gp, gp.x)

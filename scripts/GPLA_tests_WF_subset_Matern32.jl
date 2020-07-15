@@ -9,7 +9,7 @@ include("../src/utils/misc.jl")
 include("../src/utils/GP_MCMC_with_tqdm.jl")
 include("../src/GPLA.jl")
 
-include("../src/utils/WLK_SEIso.jl")
+include("../src/utils/WLK_Matern32.jl")
 
 #=========== PARAMS ==========#
 # Parsing Farm Data

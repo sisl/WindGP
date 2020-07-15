@@ -82,7 +82,7 @@ function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVec
 
     # LinearExponentialKernel
     r = abs(z - z_star)
-    k_val *= σ2_lin * exp(-r/(2*l_lin))
+    k_val *= σ2_lin * exp(-r/(2*ℓ_lin))
 
     # WindLogLawKernel
     ratio = log((z_star-d)/zₒ) / log((z-d)/zₒ)
