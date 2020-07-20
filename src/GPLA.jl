@@ -516,7 +516,7 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
         σ_star = sqrt(Σ_star)
         
         # Prevent sampling negative wind value
-        σ_star > μ_star ? σ_star = μ_star : nothing
+        σ_star > μ_star ? σ_star = abs(μ_star) : nothing
 
         xs_dist = Normal(μ_star, σ_star)
         xs_sampled_val = rand(xs_dist)
