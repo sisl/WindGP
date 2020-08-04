@@ -481,8 +481,14 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
             nothing
         end
 
-        neighbors_of_xs_in_X, _ = knn(kdtree_X_gp, xs, numNeighbors)
-        neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
+        if length(kdtree_X_gp.nodes) <= numNeighbors
+            neighbors_of_xs_in_X = collect(1:size(X_gp,2))      # all of the indices for points of X_gp, if the numNeighbors are more than the dataset size in X_gp
+            neighbors_of_xs_in_X_values = gp.y
+        else
+            neighbors_of_xs_in_X, _ = knn(kdtree_X_gp, xs, numNeighbors)
+            neighbors_of_xs_in_X_values = gp.y[neighbors_of_xs_in_X]
+        end
+
 
         closest_neighbors_of_xs = hcat(Xs_gp[:,neighbors_of_xs_in_Xs], X_gp[:,neighbors_of_xs_in_X])
         closest_neighbors_of_xs_values = vcat(neighbors_of_xs_in_Xs_values, neighbors_of_xs_in_X_values)
@@ -507,7 +513,12 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
 
         yx = closest_neighbors_of_xs_values[sort_neighs]     
         
-        μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))        
+        if length(K_fx) == 0
+            μ_star = mf    # there are no prior points
+        else
+            μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))
+        end
+        
         Σ_star = ones(1,1)*K_f                          # convert from Float64 to Array
         Lck = GaussianProcesses.whiten!(active_cK, K_xf)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
