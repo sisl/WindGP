@@ -44,7 +44,7 @@ img = Map[150][1:nx,1:ny]
 img_ds = imresize(img, IMG_SIZE)
 
 img_locs = [[i,j] for i in 0.0:grid_dist:(nx-1)*grid_dist, j in 0.0:grid_dist:(ny-1)*grid_dist]
-img_locs_ds = imresize(img_locs, (45, 45))
+img_locs_ds = imresize(img_locs, IMG_SIZE)
 
 Y_gp = vec(img_ds)
 X = [[item...,150] for item in vec(img_locs_ds)]
