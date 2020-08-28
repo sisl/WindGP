@@ -5,3 +5,6 @@
 /data/Howland1/
 /scripts/Figures/
 /scripts/statprof/
+
+# Files too large:
+/data/SRTM/*.xyz

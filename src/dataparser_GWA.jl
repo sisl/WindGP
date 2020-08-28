@@ -7,16 +7,16 @@ include("./utils/misc.jl")
 struct data_2D
     x:: Array{Float64}
     y:: Array{Float64}
-    avgSpeed:: Array{Float64}
+    value:: Array{Float64}
 
     function data_2D(datapath, filename)
         data_read = DelimitedFiles.readdlm(datapath*filename, ' ', Float64)
         
         x = data_read[:,1]
         y = data_read[:,2]
-        avgSpeed = data_read[:,3]
+        value = data_read[:,3]
 
-        new(x,y,avgSpeed)
+        new(x,y,value)
     end
 end
 
@@ -31,7 +31,7 @@ function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200])
     for h in altitudes
         filename = filename_t(h)
         D = data_2D(datapath, filename)
-        h_data = reshape(D.avgSpeed, length(unique(D.x)), length(unique(D.y)))
+        h_data = reshape(D.value, length(unique(D.x)), length(unique(D.y)))
         
         push!(data_3D, h=>h_data)
     end
@@ -39,9 +39,9 @@ function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200])
     return data_3D
 end
 
-function get_dataset(Map, altitudes, grid_dist_mid, grid_dist, nx_start, nx_end, ny_start, ny_end)
+function get_dataset(Map, altitudes, grid_dist_mid, grid_dist, nx_start, nx_end, ny_start, ny_end; typeofY = Float64)
     X_set0 = []
-    Y_set0 = Float64[]
+    Y_set0 = typeofY[]
     
     for h in altitudes
         append!(X_set0, [[i, j, Float64(h)] for j in Float64(ny_start-1)*grid_dist : grid_dist_mid : Float64(ny_end-1)*grid_dist for i in Float64(nx_start-1)*grid_dist : grid_dist_mid : Float64(nx_end-1)*grid_dist])

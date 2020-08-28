@@ -7,6 +7,8 @@ eye(x::Int) = [a==b ? 1.0 : 0.0 for a in 1:x, b in 1:x]   # create identity matr
 nearestRound(x::Number,i) = (x % i) > (i/2) ? x + i - x%i : x - x%i   # rounds x to the nearest multiple of i.
 nearestRound(x::AbstractArray,i) = nearestRound.(x,i)
 
+tuple_to_array(T) = [item for item in T]
+
 function makeHermitian!(A; inflation=1e-6)
     A[:,:] = 0.5 .* (A + A')                        # average with transpose.
     A[:,:] = A[:,:] + inflation .* eye(size(A,1))   # prevent singularity.
@@ -20,8 +22,8 @@ function dropBelowThreshold!(A; threshold=eps(Float64))
     end 
 end
 
-function transform4GPjl(X)
-    X_gp = Array{Float64,2}(undef, 3, length(X))
+function transform4GPjl(X; dim=3)
+    X_gp = Array{Float64,2}(undef, dim, length(X))
     for idx in 1:size(X,1)
         X_gp[:,idx] = X[idx]
     end
