@@ -546,3 +546,6 @@ end
 
 
 GaussianProcesses.rand(gp::GPLA) = GaussianProcesses.rand(gp, gp.x)
+
+# Converts AbstractArray{T,1} to AbstractArray{T,2}:
+GaussianProcesses.predict_f(gp::GPLA, x::AbstractArray{T,1} where T) = GaussianProcesses.predict_f(gp, x[:,1:1])
