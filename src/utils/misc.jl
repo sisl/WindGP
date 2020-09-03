@@ -2,12 +2,42 @@
 
 average(a::AbstractArray) = sum(a::AbstractArray)/length(a::AbstractArray)
 
+argmaxall(A) = findall(A .== maximum(A))    # returns indices of all the argmaxing values.
+argmaxall(A; threshold = eps()) = findall(maximum(A) .- A .<= threshold)    # returns indices of all the argmaxing values.
+
 eye(x::Int) = [a==b ? 1.0 : 0.0 for a in 1:x, b in 1:x]   # create identity matrix (no dependencies).
 
 nearestRound(x::Number,i) = (x % i) > (i/2) ? x + i - x%i : x - x%i   # rounds x to the nearest multiple of i.
 nearestRound(x::AbstractArray,i) = nearestRound.(x,i)
 
 tuple_to_array(T) = [item for item in T]
+
+
+function writedlm_append(fname::AbstractString, data)
+    open(fname, "a") do io
+        DelimitedFiles.writedlm(io, data)
+    end
+end
+
+function CartIndices_to_Vector(a::CartesianIndex)
+    a = collect(a.I)[:,1:1]    # Convert from CartesianIndex to Vector.
+    a = Float64.(a)
+    return a
+end
+
+function CartIndices_to_Array(A::Array{CartesianIndex{N},T} where {N,T})
+    A = CartIndices_to_Vector.(A)
+    return transform4GPjl(A)
+end
+
+Vector_to_CartIndices(a::AbstractVecOrMat) = CartesianIndex(Int.(a)...)
+
+Array_to_CartIndices(A::AbstractArray) = Vector_to_CartIndices.(eachcol(A))
+
+function maxk!(ix, a, k; initialized=false)         # picks top k values in an array. 
+    partialsortperm!(ix, a, 1:k, rev=true, initialized=initialized)
+    @views collect(zip(ix[1:k], a[ix[1:k]]))
+end
 
 function makeHermitian!(A; inflation=1e-6)
     A[:,:] = 0.5 .* (A + A')                        # average with transpose.
@@ -22,8 +52,18 @@ function dropBelowThreshold!(A; threshold=eps(Float64))
     end 
 end
 
-function transform4GPjl(X; dim=3)
-    X_gp = Array{Float64,2}(undef, dim, length(X))
+function transform4GPjl(a::AbstractArray{Float64,1})
+    """ Transform single location """
+    a_gp = Array{Float64,2}(undef, 3, 1)
+    for (idx,val) in enumerate(a)
+        a_gp[idx] = val
+    end
+    return a_gp
+end
+
+function transform4GPjl(X::AbstractArray)
+    """ Transform AbstractArray of locations """
+    X_gp = Array{Float64,2}(undef, 3, length(X))
     for idx in 1:size(X,1)
         X_gp[:,idx] = X[idx]
     end
