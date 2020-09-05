@@ -94,6 +94,12 @@ function dot_product(a::Union{Number,AbstractArray}, b::Union{Number,AbstractArr
     return c
 end
 
+function dot_product(a::CartesianIndex, b::CartesianIndex)    # Supports numbers, vectors and matrices.
+    @assert length(a) == length(b) "Dimensions of the two inputs do not match."    
+    a, b = tuple_to_array.([a.I, b.I])
+    return dot_product(a, b)
+end
+
 function normalizeArray(a::AbstractArray)  # normalizes any-size Array.
     norma = maximum(a)
     b = a./norma

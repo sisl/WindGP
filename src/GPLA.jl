@@ -1,14 +1,3 @@
-using Random
-using CPUTime
-using Printf
-using ElasticArrays
-using PDMats
-using NearestNeighbors
-import PDMats: *, \, diag
-using GaussianProcesses
-import GaussianProcesses: MeanConst, predict_f
-using LinearAlgebra
-
 mutable struct GPLA{X<:AbstractMatrix, Y<:AbstractVector, M<:GaussianProcesses.Mean, K<:GaussianProcesses.Kernel, NOI<:GaussianProcesses.Param} <: GaussianProcesses.GPBase
     x::X
     y::Y

@@ -1,15 +1,11 @@
 # Parses the data provided in ../data/SRTM/
 
-using NearestNeighbors
-include("./dataparser_GWA.jl")
-
-
 function get_elevation_data(farm, srtm_coord, grid_dist_mid, grid_dist, nx_start, nx_end, ny_start, ny_end)
 
     remove_altitude(x) = x[1:2]
     filename_t(h) = "custom_wind-speed_$(h)m.xyz"
-    datapath_t(loc) = "../../windGP/data/GWA/$(loc)/"
-    srtmpath = "../../windGP/data/SRTM/"
+    datapath_t(loc) = "../../../windGP/data/GWA/$(loc)/"
+    srtmpath = "../../../windGP/data/SRTM/"
     srtmname_t(c) = "$(c).xyz"
     datapath = datapath_t(farm)
     srtmname = srtmname_t(srtm_coord)
