@@ -19,7 +19,7 @@ end
 function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200])
     
     filename_t(h) = "custom_wind-speed_$(h)m.xyz"
-    datapath_t(loc) = "../../../windGP/data/GWA/$(loc)/"
+    datapath_t(loc) = "../../../WindGP/data/GWA/$(loc)/"
     datapath = datapath_t(farm)
     
     data_3D = Dict{Int, Array{Float64,2}}()
