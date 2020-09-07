@@ -1,7 +1,5 @@
 # Some helper functions. Some simple functions are re-defined here to avoid dependencies to other modules.
 
-average(a::AbstractArray) = sum(a::AbstractArray)/length(a::AbstractArray)
-
 argmaxall(A) = findall(A .== maximum(A))    # returns indices of all the argmaxing values.
 argmaxall(A; threshold = eps()) = findall(maximum(A) .- A .<= threshold)    # returns indices of all the argmaxing values.
 
@@ -12,6 +10,7 @@ nearestRound(x::AbstractArray,i) = nearestRound.(x,i)
 
 tuple_to_array(T) = [item for item in T]
 
+prob_normalize(v) = v ./ sum(v)
 
 function writedlm_append(fname::AbstractString, data)
     open(fname, "a") do io
@@ -98,19 +97,6 @@ function dot_product(a::CartesianIndex, b::CartesianIndex)    # Supports numbers
     @assert length(a) == length(b) "Dimensions of the two inputs do not match."    
     a, b = tuple_to_array.([a.I, b.I])
     return dot_product(a, b)
-end
-
-function normalizeArray(a::AbstractArray)  # normalizes any-size Array.
-    norma = maximum(a)
-    b = a./norma
-    return b
-end
-
-function normalizeArray!(a::AbstractArray)  # normalizes any-size Array in-place.
-    norma = maximum(a)
-    for i = firstindex(a):lastindex(a)
-        a[i] /= norma
-    end
 end
 
 function stretch(a::AbstractArray, lower_lim::Real, upper_lim::Real)  # stretches (forces given extremas, interpolates others in-between) any-size Array.
