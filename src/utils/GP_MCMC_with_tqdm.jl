@@ -77,9 +77,9 @@ function GaussianProcesses.mcmc(gp::GPBase; nIter::Int=1000, burn::Int=1, thin::
     end
     post = post[burn:thin:end,:]
     set_params!(gp, θ_cur; params_kwargs...)
-    @printf("Number of iterations = %d, Thinning = %d, Burn-in = %d \n", nIter,thin,burn)
-    @printf("Step size = %f, Average number of leapfrog steps = %f \n", ε,leapSteps/nIter)
+    println("Number of iterations = %d, Thinning = %d, Burn-in = %d \n", nIter,thin,burn)
+    println("Step size = %f, Average number of leapfrog steps = %f \n", ε,leapSteps/nIter)
     println("Number of function calls: ", count)
-    @printf("Acceptance rate: %f \n", num_acceptances/nIter)
+    println("Acceptance rate: %f \n", num_acceptances/nIter)
     return post'
 end

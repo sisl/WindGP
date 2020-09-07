@@ -1,6 +1,4 @@
 using Random
-using CPUTime
-using Printf
 using ElasticArrays
 using PDMats
 using NearestNeighbors
