@@ -12,6 +12,8 @@ tuple_to_array(T) = [item for item in T]
 
 prob_normalize(v) = v ./ sum(v)
 
+flatten(A::AbstractArray) = vcat(A...)
+
 function writedlm_append(fname::AbstractString, data)
     open(fname, "a") do io
         DelimitedFiles.writedlm(io, data)
