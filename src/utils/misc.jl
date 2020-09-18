@@ -15,8 +15,14 @@ prob_normalize(v) = v ./ sum(v)
 flatten(A::AbstractArray) = vcat(A...)
 
 function writedlm_append(fname::AbstractString, data)
-    open(fname, "a") do io
-        DelimitedFiles.writedlm(io, data)
+    if fname == "0"
+        @warn "Not saved to disk!"
+        return
+    else
+        open(fname, "a") do io
+            DelimitedFiles.writedlm(io, data)
+        end
+        println("### Saved to:  $fname ###")
     end
 end
 
