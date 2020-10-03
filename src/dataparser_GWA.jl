@@ -16,10 +16,10 @@ struct data_2D
     end
 end
 
-function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200])
+function get_3D_data(farm; altitudes = [10, 50, 100, 150, 200], loc_parent = "../../../WindGP/data/GWA")
     
     filename_t(h) = "custom_wind-speed_$(h)m.xyz"
-    datapath_t(loc) = "../../../WindGP/data/GWA/$(loc)/"
+    datapath_t(loc) = "$(loc_parent)/$(loc)/"
     datapath = datapath_t(farm)
     
     data_3D = Dict{Int, Array{Float64,2}}()

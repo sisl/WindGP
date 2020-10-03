@@ -513,7 +513,7 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
         
         Σ_star = abs.(Σ_star[1]) + noise_variance(gp)   # mimics predict_y.
-        σ_star = sqrt(Σ_star)
+        σ_star = sqrt(Σ_star) /10
         
         # Prevent sampling negative wind value
         σ_star > μ_star ? σ_star = abs(μ_star) : nothing

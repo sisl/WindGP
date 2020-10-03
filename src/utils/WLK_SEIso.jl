@@ -63,12 +63,9 @@ function GaussianProcesses.cov!(cK::AbstractMatrix, k::WLK_SEIso, X1::AbstractMa
     return cK
 end
 
-function GaussianProcesses.cov(k::WLK_SEIso, x1::AbstractVector, x2::AbstractVector, data::GaussianProcesses.KernelData=GaussianProcesses.EmptyData())
+function GaussianProcesses.cov(k::WLK_SEIso, x_star::AbstractVector, x::AbstractVector, data::GaussianProcesses.KernelData=GaussianProcesses.EmptyData())
 
     ℓ2_sq, σ2_sq, ℓ_lin, σ2_lin, d, zₒ = k.ℓ2_sq, k.σ2_sq, k.ℓ_lin, k.σ2_lin, k.d, k.zₒ
-
-    x_star = x1
-    x = x2
     
     z_star = x_star[3]
     z = x[3]

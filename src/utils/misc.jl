@@ -14,6 +14,8 @@ prob_normalize(v) = v ./ sum(v)
 
 flatten(A::AbstractArray) = vcat(A...)
 
+Int_round(x::Number) = Int(round(x))
+
 function writedlm_append(fname::AbstractString, data)
     if fname == "0"
         @warn "Not saved to disk!"
@@ -124,6 +126,14 @@ function stretch!(a::AbstractArray, lower_lim::Real, upper_lim::Real)  # stretch
     for i = firstindex(a):lastindex(a)
         a[i] = b[i]
     end
+end
+
+function split_arrays_randomly(X::AbstractArray, Y::AbstractArray, ratio)
+    sz = size(X,2)
+    srt = shuffle(1:sz)
+    X = X[:, srt]
+    Y = Y[srt]
+    return X[:, 1:Int_round(sz * ratio)], X[:, Int_round(sz * ratio) + 1 : end], Y[1:Int_round(sz * ratio)], Y[Int_round(sz * ratio) + 1 : end]
 end
 
 function deg2NSEW(x_deg,y_deg)
