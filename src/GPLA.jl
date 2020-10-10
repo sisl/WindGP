@@ -31,6 +31,11 @@ function GPLA(x::AbstractMatrix, y::AbstractVector, k::Integer, action_dims::Int
 end
 
 function initialize!(gp::GPLA)
+
+    srt = sortperm(gp.x[end, :])   # sort by altitude to prevent non-PSD. 
+    gp.x = gp.x[:,srt]
+    gp.y = gp.y[srt]
+
     n_obs = size(gp.y, 1)
     if n_obs != 0
         gp.kdtree = KDTree(gp.x)
