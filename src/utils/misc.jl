@@ -16,8 +16,8 @@ flatten(A::AbstractArray) = vcat(A...)
 
 Int_round(x::Number) = Int(round(x))
 
-function writedlm_append(fname::AbstractString, data)
-    if fname == "0"
+function writedlm_append(fname, data)
+    if isnothing(fname)
         @warn "Not saved to disk!"
         return
     else
@@ -40,8 +40,13 @@ function CartIndices_to_Array(A::Array{CartesianIndex{N},T} where {N,T})
 end
 
 Vector_to_CartIndices(a::AbstractVecOrMat) = CartesianIndex(Int.(a)...)
-
 Array_to_CartIndices(A::AbstractArray) = Vector_to_CartIndices.(eachcol(A))
+
+# Calling with methods below simply ignores the transformation request (since it is already in that form).
+CartIndices_to_Vector(x::AbstractVecOrMat) = x
+CartIndices_to_Array(x::AbstractArray) = x
+Vector_to_CartIndices(x::CartesianIndex) = x
+Array_to_CartIndices(x::Array{CartesianIndex{N},T} where {N,T}) = x
 
 function maxk!(ix, a, k; initialized=false)         # picks top k values in an array. 
     partialsortperm!(ix, a, 1:k, rev=true, initialized=initialized)
