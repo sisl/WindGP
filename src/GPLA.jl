@@ -1,6 +1,7 @@
-mutable struct GPLA{X<:AbstractMatrix, Y<:AbstractVector, M<:GaussianProcesses.Mean, K<:GaussianProcesses.Kernel, NOI<:GaussianProcesses.Param} <: GaussianProcesses.GPBase
-    x::X
-    y::Y
+# mutable struct GPLA{X<:AbstractMatrix, Y<:AbstractVector, M<:GaussianProcesses.Mean, K<:GaussianProcesses.Kernel, NOI<:GaussianProcesses.Param} <: GaussianProcesses.GPBase
+mutable struct GPLA{M<:GaussianProcesses.Mean, K<:GaussianProcesses.Kernel, NOI<:GaussianProcesses.Param} <: GaussianProcesses.GPBase
+    x::Matrix{Float64}
+    y::Vector{Float64}
     k::Int64 #Local Neighborhood Size
 
     action_dims::Int64
@@ -18,21 +19,23 @@ mutable struct GPLA{X<:AbstractMatrix, Y<:AbstractVector, M<:GaussianProcesses.M
     dmll::Vector{Float64}
     target::Float64
     dtarget::Vector{Float64}
-    function GPLA{X, Y, M, K, NOI}(x::X, y::Y, k::Int64, action_dims::Int64, state_dims::Int64, mean::M, kernel::K, logNoise::NOI) where {X, Y, M, K, NOI}
+    # function GPLA{X, Y, M, K, NOI}(x::X, y::Y, k::Int64, action_dims::Int64, state_dims::Int64, mean::M, kernel::K, logNoise::NOI) where {X, Y, M, K, NOI}
+    function GPLA{M, K, NOI}(x, y, k::Int64, action_dims::Int64, state_dims::Int64, mean::M, kernel::K, logNoise::NOI) where {M, K, NOI}
         data = GaussianProcesses.KernelData(kernel, x, x)
-        gp = new{X, Y, M, K, NOI}(ElasticArray(x), ElasticArray(y), k, action_dims, state_dims, action_dims+state_dims, mean, kernel, logNoise, nothing, data)
+        gp = new{M, K, NOI}(ElasticArray(x), ElasticArray(y), k, action_dims, state_dims, action_dims+state_dims, mean, kernel, logNoise, nothing, data)
         initialize!(gp)
     end
 end
 
 function GPLA(x::AbstractMatrix, y::AbstractVector, k::Integer, action_dims::Integer, state_dims::Integer, mean::GaussianProcesses.Mean, kernel::GaussianProcesses.Kernel, logNoise::Real)
     lns = GaussianProcesses.wrap_param(logNoise)
-    GPLA{typeof(x),typeof(y),typeof(mean),typeof(kernel), typeof(lns)}(x, y, k, action_dims, state_dims, mean, kernel, lns)
+    GPLA{typeof(mean),typeof(kernel), typeof(lns)}(x, y, k, action_dims, state_dims, mean, kernel, lns)
+    # GPLA{typeof(x),typeof(y),typeof(mean),typeof(kernel), typeof(lns)}(x, y, k, action_dims, state_dims, mean, kernel, lns)
 end
 
 function initialize!(gp::GPLA)
 
-    srt = sortperm(gp.x[end, :])   # sort by altitude to prevent non-PSD. 
+    srt = sortperm(gp.x[end, :])   # sort by altitude to prevent non-PSD.
     gp.x = gp.x[:,srt]
     gp.y = gp.y[srt]
 
@@ -83,7 +86,7 @@ end
 function predict_local(x, x_obs, y_obs, mean, kernel, logNoise)
     k = size(x_obs, 2)
 
-    sort_obs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.  
+    sort_obs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.
     x_obs = x_obs[:, sort_obs]
     y_obs = y_obs[sort_obs]
 
@@ -113,18 +116,18 @@ function mll_local(idx, gp, mx, neighbors)
 
     x = gp.x[:,idx:idx]
     x_obs = gp.x[:, neighbors]
-    
-    sort_neighs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.  
+
+    sort_neighs = sortperm(x_obs[end, :])   # sort by altitude to prevent non-PSD.
     neighbors = neighbors[sort_neighs]
     x_obs = gp.x[:, neighbors]
-    
+
     y_obs = gp.y[neighbors] - mx[neighbors]
     y_obs = reshape(y_obs, size(y_obs, 1), 1)
-    
+
     mf = mx[idx]
     Kxf = GaussianProcesses.cov(gp.kernel, x, x_obs) #size(size(x,2) x nx)
     Kff = GaussianProcesses.cov(gp.kernel, x, x) .+ exp(2*gp.logNoise.value) .+ eps()
-    
+
     data = GaussianProcesses.KernelData(gp.kernel, x_obs, x_obs)
     Σ = GaussianProcesses.cov(gp.kernel, x_obs, x_obs, data) + Matrix(I, gp.k, gp.k).*(exp(2*gp.logNoise.value)+eps())
     Kxx = PDMat(GaussianProcesses.make_posdef!(Σ)...)
@@ -422,7 +425,7 @@ GaussianProcesses.noise_variance(gp::GPLA) = noise_variance(gp.logNoise)
 
 function getSparse_K(kernel, X1, X2)
     """get a smaller cK matrix for a single x point"""
-    
+
     X1_length = size(X1,2)
     X2_length = size(X2,2)
 
@@ -452,7 +455,7 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
     if size(Xs_gp) == (3,)                  # if there is only one point, make AbstractArray 2 dimensional.
         Xs_gp = transform4GPjl([Xs_gp])
     end
-    
+
     X_gp_set = Set(eachcol(X_gp))           # lookup in Set is O(1), we will take advantage of this.
     Xs_samples_val = Float64[]
 
@@ -466,7 +469,7 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
 
         neighbors_of_xs_in_Xs = []
         neighbors_of_xs_in_Xs_values = []
-        
+
         try
             neighbors_of_xs_in_Xs, _ = knn(kdtree_Xs_gp, xs, numNeighbors)
             neighbors_of_xs_in_Xs = collect(intersect(prequal_samples, Set{Int}(neighbors_of_xs_in_Xs)))   # only take points in tree if they have been sampled earlier.
@@ -491,36 +494,36 @@ function GaussianProcesses.rand(gp::GPLA, Xs_gp::AbstractArray{T,2} where T)
         num_of_neigh = size(closest_neighbors_of_xs, 2)
         empty_cK = GaussianProcesses.alloc_cK(num_of_neigh)
 
-        sort_neighs = sortperm(closest_neighbors_of_xs[end, :])   # sort by altitude to prevent non-PSD.  
+        sort_neighs = sortperm(closest_neighbors_of_xs[end, :])   # sort by altitude to prevent non-PSD.
         X_active = closest_neighbors_of_xs[:, sort_neighs]
-        
-        
+
+
         data = GaussianProcesses.KernelData(kernel, X_active, X_active)
         K_xx = active_cK = GaussianProcesses.update_cK!(empty_cK, X_active, kernel, logNoise, data, covstrat)
-        
+
         K_fx = getSparse_K(kernel, xs, X_active)
         K_xf = getSparse_K(kernel, X_active, xs)
         K_f = GaussianProcesses.cov(kernel, xs, xs)
-        
+
         mf = mean(gp.mean, xs)
         mx = mean(gp.mean, closest_neighbors_of_xs)
 
 
-        yx = closest_neighbors_of_xs_values[sort_neighs]     
-        
+        yx = closest_neighbors_of_xs_values[sort_neighs]
+
         if length(K_fx) == 0
             μ_star = mf    # there are no prior points
         else
             μ_star = mf + dot(K_fx, inv(K_xx.mat) * (yx - mx))
         end
-        
+
         Σ_star = ones(1,1)*K_f                          # convert from Float64 to Array
         Lck = GaussianProcesses.whiten!(active_cK, K_xf)
         GaussianProcesses.subtract_Lck!(Σ_star, Lck)
-        
+
         Σ_star = abs.(Σ_star[1]) + noise_variance(gp)   # mimics predict_y.
         σ_star = sqrt(Σ_star)    /10
-        
+
         # Prevent sampling negative wind value
         σ_star > μ_star ? σ_star = abs(μ_star) : nothing
 
