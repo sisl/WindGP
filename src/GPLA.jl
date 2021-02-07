@@ -49,6 +49,7 @@ end
 
 function GaussianProcesses.predict_f(gp::GPLA, x::AbstractArray{T,2} where T)
     nx = size(gp.x, 2)
+    cols_x = eachcol(gp.x)
     if nx <= gp.k
         mx = GaussianProcesses.mean(gp.mean, gp.x)
         mf = GaussianProcesses.mean(gp.mean, x)
@@ -75,11 +76,17 @@ function GaussianProcesses.predict_f(gp::GPLA, x::AbstractArray{T,2} where T)
             # m = mf + GaussianProcesses.dot(Kxf, Kxx \ y_obs)
             #####
             m, s = predict_local(x[:,i:i], x_obs, y_obs, gp.mean, gp.kernel, gp.logNoise)
+
+            # Enforce that locations in gp.x have zero variance.
+            if x[:,i] in cols_x 
+                s = 0.0
+            end
+
             μ[i, 1] = m
             σ²[i, 1] = s #+ exp(2*gp.logNoise.value) + eps()
         end
     end
-    # return μ, σ²
+
     return μ, clamp.(σ², 0.0, Inf)
 end
 
